@@ -72,8 +72,8 @@ impl FileSystemFile {
         // For filesystem, we'll use basic read permissions
         // In the future, this could be enhanced to map actual filesystem permissions
         let permissions = DocumentPermissions {
-            public: false,
-            users: vec![], // TODO: Map filesystem users/groups to users
+            public: true,
+            users: vec![],
             groups: vec![],
         };
 

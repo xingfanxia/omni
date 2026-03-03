@@ -350,7 +350,7 @@ impl FileSystemEventProcessor {
                     extra: None,
                 },
                 permissions: Some(DocumentPermissions {
-                    public: false,
+                    public: true,
                     users: vec![],
                     groups: vec![],
                 }),

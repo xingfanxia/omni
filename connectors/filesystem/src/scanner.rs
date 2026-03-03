@@ -1,8 +1,9 @@
+use crate::content_extractor;
 use crate::models::{FileSystemFile, FileSystemPermissions, FileSystemSource};
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::PathBuf;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 use walkdir::WalkDir;
 
 pub struct FileSystemScanner {
@@ -217,7 +218,6 @@ impl FileSystemScanner {
             return Ok(String::new());
         }
 
-        // For large files, we might want to limit how much we read
         const MAX_CONTENT_SIZE: u64 = 10 * 1024 * 1024; // 10MB
         if file.size > MAX_CONTENT_SIZE {
             warn!(
@@ -228,34 +228,25 @@ impl FileSystemScanner {
             return Ok(String::new());
         }
 
-        // Only try to read text files
-        if !self.is_text_file(&file.mime_type) {
-            debug!("Skipping binary file: {}", file.path.display());
-            return Ok(String::new());
-        }
-
-        match tokio::fs::read_to_string(&file.path).await {
+        match content_extractor::extract_text_content(&file.path, &file.mime_type) {
             Ok(content) => {
-                debug!("Read {} bytes from {}", content.len(), file.path.display());
+                if !content.is_empty() {
+                    debug!(
+                        "Extracted {} bytes from {}",
+                        content.len(),
+                        file.path.display()
+                    );
+                }
                 Ok(content)
             }
             Err(e) => {
-                error!("Failed to read file {}: {}", file.path.display(), e);
+                warn!(
+                    "Failed to extract content from {}: {}",
+                    file.path.display(),
+                    e
+                );
                 Ok(String::new())
             }
         }
-    }
-
-    fn is_text_file(&self, mime_type: &str) -> bool {
-        mime_type.starts_with("text/")
-            || matches!(
-                mime_type,
-                "application/json"
-                    | "application/xml"
-                    | "application/javascript"
-                    | "application/x-sh"
-                    | "application/x-python"
-                    | "application/x-ruby"
-            )
     }
 }
