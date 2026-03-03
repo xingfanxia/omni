@@ -1,5 +1,6 @@
 use crate::config::ConnectorManagerConfig;
 use crate::models::TriggerType;
+use crate::source_cleanup::SourceCleanup;
 use crate::sync_manager::{SyncError, SyncManager};
 use shared::db::repositories::SourceRepository;
 use shared::models::SyncType;
@@ -62,6 +63,9 @@ impl Scheduler {
                 error!("Error detecting stale syncs: {}", e);
             }
         }
+
+        // Clean up soft-deleted sources
+        SourceCleanup::cleanup_deleted_sources(&self.pool).await;
     }
 
     async fn process_due_sources(&self) -> Result<(), SchedulerError> {

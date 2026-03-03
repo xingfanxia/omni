@@ -3,6 +3,7 @@ mod common;
 use axum::http::StatusCode;
 use axum_test::{TestServer, TestServerConfig};
 use common::TEST_SOURCE_ID;
+use omni_connector_manager::source_cleanup::SourceCleanup;
 use serde_json::json;
 use shared::db::repositories::SyncRunRepository;
 use shared::models::{ConnectorEvent, DocumentMetadata, DocumentPermissions, SyncStatus};
@@ -444,4 +445,103 @@ async fn test_stale_sync_detection() {
         .json(&json!({"source_id": TEST_SOURCE_ID}))
         .await;
     resp.assert_status(StatusCode::OK);
+}
+
+// ============================================================================
+// 8. test_source_cleanup — deleted source document + row cleanup
+// ============================================================================
+
+async fn seed_deleted_source_with_documents(
+    pool: &sqlx::PgPool,
+    doc_count: usize,
+) -> (String, Vec<String>) {
+    let source_id = shared::utils::generate_ulid();
+    let user_id = "01JGF7V3E0Y2R1X8P5Q7W9T4N6";
+
+    sqlx::query(
+        r#"
+        INSERT INTO sources (id, name, source_type, config, is_active, is_deleted, created_by, created_at, updated_at)
+        VALUES ($1, 'Deleted Source', 'local_files', '{}', false, true, $2, NOW(), NOW())
+        "#,
+    )
+    .bind(&source_id)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .unwrap();
+
+    let mut doc_ids = Vec::with_capacity(doc_count);
+    for i in 0..doc_count {
+        let doc_id = shared::utils::generate_ulid();
+        sqlx::query(
+            r#"
+            INSERT INTO documents (id, source_id, external_id, title, metadata, permissions, created_at, updated_at, last_indexed_at)
+            VALUES ($1, $2, $3, $4, '{}', '[]', NOW(), NOW(), NOW())
+            "#,
+        )
+        .bind(&doc_id)
+        .bind(&source_id)
+        .bind(format!("ext_{}", i))
+        .bind(format!("Doc {}", i))
+        .execute(pool)
+        .await
+        .unwrap();
+        doc_ids.push(doc_id);
+    }
+
+    (source_id, doc_ids)
+}
+
+#[tokio::test]
+async fn test_source_cleanup() {
+    let fixture = common::setup_test_fixture().await.unwrap();
+    let pool = fixture.state.db_pool.pool();
+
+    let (source_id, _doc_ids) = seed_deleted_source_with_documents(pool, 3).await;
+
+    // Verify setup: 3 documents exist
+    let (doc_count,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM documents WHERE source_id = $1")
+            .bind(&source_id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(doc_count, 3);
+
+    // First call: deletes documents, source row remains
+    SourceCleanup::cleanup_deleted_sources(pool).await;
+
+    let (doc_count,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM documents WHERE source_id = $1")
+            .bind(&source_id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        doc_count, 0,
+        "All documents should be deleted after first cleanup call"
+    );
+
+    let (source_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sources WHERE id = $1")
+        .bind(&source_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        source_count, 1,
+        "Source row should still exist after first cleanup call"
+    );
+
+    // Second call: no documents remain, so source row is deleted
+    SourceCleanup::cleanup_deleted_sources(pool).await;
+
+    let (source_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sources WHERE id = $1")
+        .bind(&source_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        source_count, 0,
+        "Source row should be deleted after second cleanup call"
+    );
 }

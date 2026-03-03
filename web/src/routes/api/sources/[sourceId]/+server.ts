@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
 import { db } from '$lib/server/db'
-import { sources, syncRuns, connectorEventsQueue } from '$lib/server/db/schema'
+import { sources, syncRuns, serviceCredentials } from '$lib/server/db/schema'
 import { eq, and } from 'drizzle-orm'
 import { getConfig } from '$lib/server/config'
 import { logger } from '$lib/server/logger'
@@ -43,11 +43,18 @@ export const DELETE: RequestHandler = async ({ params, locals, fetch }) => {
         }
     }
 
-    // Delete from connector_events_queue (no cascade FK on this table)
-    await db.delete(connectorEventsQueue).where(eq(connectorEventsQueue.sourceId, sourceId))
+    // Delete service credentials eagerly (small table, contains sensitive OAuth tokens)
+    await db.delete(serviceCredentials).where(eq(serviceCredentials.sourceId, sourceId))
 
-    // Delete the source — cascades to documents, embeddings, service_credentials, sync_runs, webhook_channels
-    await db.delete(sources).where(eq(sources.id, sourceId))
+    // Soft-delete the source — background cleanup in connector-manager will handle documents/embeddings
+    await db
+        .update(sources)
+        .set({
+            isActive: false,
+            isDeleted: true,
+            updatedAt: new Date(),
+        })
+        .where(eq(sources.id, sourceId))
 
     return json({ success: true })
 }
