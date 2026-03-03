@@ -218,7 +218,7 @@ impl FileSystemScanner {
             return Ok(String::new());
         }
 
-        const MAX_CONTENT_SIZE: u64 = 10 * 1024 * 1024; // 10MB
+        const MAX_CONTENT_SIZE: u64 = 50 * 1024 * 1024; // 50MB
         if file.size > MAX_CONTENT_SIZE {
             warn!(
                 "File too large to read content: {} ({}MB)",
