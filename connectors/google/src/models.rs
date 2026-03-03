@@ -133,12 +133,32 @@ impl GoogleDriveFile {
         content_id: &str,
         path: Option<String>,
     ) -> ConnectorEvent {
+        let mut is_public = false;
         let mut users = Vec::new();
+        let mut groups = Vec::new();
 
         if let Some(file_permissions) = &self.permissions {
             for perm in file_permissions {
-                if let Some(email) = &perm.email_address {
-                    users.push(email.clone());
+                match perm.permission_type.as_str() {
+                    "anyone" => {
+                        is_public = true;
+                    }
+                    "group" => {
+                        if let Some(email) = &perm.email_address {
+                            groups.push(email.clone());
+                        }
+                    }
+                    "user" => {
+                        if let Some(email) = &perm.email_address {
+                            users.push(email.clone());
+                        }
+                    }
+                    "domain" => {
+                        if let Some(domain) = &perm.email_address {
+                            groups.push(domain.clone());
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
@@ -178,9 +198,9 @@ impl GoogleDriveFile {
         };
 
         let permissions = DocumentPermissions {
-            public: false,
+            public: is_public,
             users,
-            groups: vec![],
+            groups,
         };
 
         let attributes = self.to_attributes().into_attributes();
@@ -661,6 +681,7 @@ mod tests {
                 // Check permissions
                 assert!(!permissions.public);
                 assert_eq!(permissions.users, vec!["user@example.com".to_string()]);
+                assert!(permissions.groups.is_empty());
 
                 // Check attributes
                 let attrs = attributes.unwrap();
@@ -809,6 +830,61 @@ mod tests {
                 assert!(permissions.users.is_empty());
                 assert!(permissions.groups.is_empty());
                 assert!(!permissions.public);
+            }
+            _ => panic!("Expected DocumentCreated event"),
+        }
+    }
+
+    #[test]
+    fn test_drive_file_permission_types() {
+        let file = GoogleDriveFile {
+            id: "file_mixed".to_string(),
+            name: "mixed.txt".to_string(),
+            mime_type: "text/plain".to_string(),
+            web_view_link: None,
+            created_time: None,
+            modified_time: None,
+            size: None,
+            parents: None,
+            shared: Some(true),
+            permissions: Some(vec![
+                Permission {
+                    id: "perm1".to_string(),
+                    permission_type: "user".to_string(),
+                    email_address: Some("alice@example.com".to_string()),
+                    role: "writer".to_string(),
+                },
+                Permission {
+                    id: "perm2".to_string(),
+                    permission_type: "group".to_string(),
+                    email_address: Some("team@example.com".to_string()),
+                    role: "reader".to_string(),
+                },
+                Permission {
+                    id: "perm3".to_string(),
+                    permission_type: "anyone".to_string(),
+                    email_address: None,
+                    role: "reader".to_string(),
+                },
+                Permission {
+                    id: "perm4".to_string(),
+                    permission_type: "domain".to_string(),
+                    email_address: Some("example.com".to_string()),
+                    role: "reader".to_string(),
+                },
+            ]),
+            owners: None,
+        };
+
+        let event = file.to_connector_event("sync1", "source1", "content1", None);
+        match event {
+            ConnectorEvent::DocumentCreated { permissions, .. } => {
+                assert!(permissions.public);
+                assert_eq!(permissions.users, vec!["alice@example.com".to_string()]);
+                assert_eq!(
+                    permissions.groups,
+                    vec!["team@example.com".to_string(), "example.com".to_string()]
+                );
             }
             _ => panic!("Expected DocumentCreated event"),
         }
