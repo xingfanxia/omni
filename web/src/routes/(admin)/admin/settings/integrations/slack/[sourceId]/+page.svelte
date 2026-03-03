@@ -4,7 +4,8 @@
     import { Label } from '$lib/components/ui/label'
     import { Switch } from '$lib/components/ui/switch'
     import * as Card from '$lib/components/ui/card'
-    import { Loader2 } from '@lucide/svelte'
+    import { ArrowLeft, Loader2, Trash2 } from '@lucide/svelte'
+    import RemoveSourceDialog from '../../remove-source-dialog.svelte'
     import { onMount } from 'svelte'
     import { beforeNavigate } from '$app/navigation'
     import type { PageProps } from './$types'
@@ -17,6 +18,7 @@
     let isSubmitting = $state(false)
     let hasUnsavedChanges = $state(false)
     let skipUnsavedCheck = $state(false)
+    let showRemoveDialog = $state(false)
 
     let beforeUnloadHandler: ((e: BeforeUnloadEvent) => void) | null = null
 
@@ -60,11 +62,13 @@
 </svelte:head>
 
 <div class="h-full overflow-y-auto p-6 py-8 pb-24">
-    <div class="mx-auto max-w-screen-lg space-y-8">
-        <div>
-            <h1 class="text-3xl font-bold tracking-tight">Configure Slack</h1>
-            <p class="text-muted-foreground mt-2">Configure Slack message and file indexing</p>
-        </div>
+    <div class="mx-auto max-w-screen-lg space-y-4">
+        <a
+            href="/admin/settings/integrations"
+            class="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm transition-colors">
+            <ArrowLeft class="h-4 w-4" />
+            Back to Integrations
+        </a>
 
         <form
             method="POST"
@@ -113,20 +117,42 @@
                         All public channels the bot has been added to will be indexed.
                     </p>
                 </Card.Content>
+                <Card.Footer class="flex justify-end">
+                    <Button
+                        type="submit"
+                        disabled={isSubmitting || !hasUnsavedChanges}
+                        class="cursor-pointer">
+                        {#if isSubmitting}
+                            <Loader2 class="mr-2 h-4 w-4 animate-spin" />
+                        {/if}
+                        Save Configuration
+                    </Button>
+                </Card.Footer>
             </Card.Root>
-
-            <div class="mt-8 flex justify-between">
-                <Button variant="outline" href="/admin/settings/integrations">Cancel</Button>
-                <Button
-                    type="submit"
-                    disabled={isSubmitting || !hasUnsavedChanges}
-                    class="cursor-pointer">
-                    {#if isSubmitting}
-                        <Loader2 class="mr-2 h-4 w-4 animate-spin" />
-                    {/if}
-                    Save Configuration
-                </Button>
-            </div>
         </form>
+
+        <Card.Root>
+            <Card.Content class="flex items-center justify-between">
+                <div>
+                    <Card.Title>Delete Source</Card.Title>
+                    <Card.Description>
+                        Permanently delete this source and all its synced documents, credentials,
+                        and sync history.
+                    </Card.Description>
+                </div>
+                <Button
+                    variant="destructive"
+                    class="cursor-pointer"
+                    onclick={() => (showRemoveDialog = true)}>
+                    <Trash2 class="mr-2 h-4 w-4" />
+                    Delete Permanently
+                </Button>
+            </Card.Content>
+        </Card.Root>
+
+        <RemoveSourceDialog
+            bind:open={showRemoveDialog}
+            sourceId={data.source.id}
+            sourceName={data.source.name} />
     </div>
 </div>

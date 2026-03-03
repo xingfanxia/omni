@@ -5,7 +5,8 @@
     import { Switch } from '$lib/components/ui/switch'
     import * as Card from '$lib/components/ui/card'
     import * as Alert from '$lib/components/ui/alert'
-    import { AlertCircle, Loader2, Globe } from '@lucide/svelte'
+    import { ArrowLeft, AlertCircle, Loader2, Globe, Trash2 } from '@lucide/svelte'
+    import RemoveSourceDialog from '../../remove-source-dialog.svelte'
     import { onMount } from 'svelte'
     import { beforeNavigate } from '$app/navigation'
     import type { PageProps } from './$types'
@@ -39,6 +40,7 @@
     let formErrors = $state<string[]>([])
     let hasUnsavedChanges = $state(false)
     let skipUnsavedCheck = $state(false)
+    let showRemoveDialog = $state(false)
 
     let beforeUnloadHandler: ((e: BeforeUnloadEvent) => void) | null = null
 
@@ -131,13 +133,13 @@
 </svelte:head>
 
 <div class="h-full overflow-y-auto p-6 py-8 pb-24">
-    <div class="mx-auto max-w-screen-lg space-y-8">
-        <div>
-            <h1 class="text-3xl font-bold tracking-tight">Configure Web Crawler</h1>
-            <p class="text-muted-foreground mt-2">
-                Configure web crawler to index content from public websites
-            </p>
-        </div>
+    <div class="mx-auto max-w-screen-lg space-y-4">
+        <a
+            href="/admin/settings/integrations"
+            class="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm transition-colors">
+            <ArrowLeft class="h-4 w-4" />
+            Back to Integrations
+        </a>
 
         {#if formErrors.length > 0}
             <Alert.Root variant="destructive" class="mb-6">
@@ -209,20 +211,42 @@
                         bind:userAgent
                         disabled={!webEnabled} />
                 </Card.Content>
+                <Card.Footer class="flex justify-end">
+                    <Button
+                        type="submit"
+                        disabled={isSubmitting || !hasUnsavedChanges}
+                        class="cursor-pointer">
+                        {#if isSubmitting}
+                            <Loader2 class="mr-2 h-4 w-4 animate-spin" />
+                        {/if}
+                        Save Configuration
+                    </Button>
+                </Card.Footer>
             </Card.Root>
-
-            <div class="mt-8 flex justify-between">
-                <Button variant="outline" href="/admin/settings/integrations">Cancel</Button>
-                <Button
-                    type="submit"
-                    disabled={isSubmitting || !hasUnsavedChanges}
-                    class="cursor-pointer">
-                    {#if isSubmitting}
-                        <Loader2 class="mr-2 h-4 w-4 animate-spin" />
-                    {/if}
-                    Save Configuration
-                </Button>
-            </div>
         </form>
+
+        <Card.Root>
+            <Card.Content class="flex items-center justify-between">
+                <div>
+                    <Card.Title>Delete Source</Card.Title>
+                    <Card.Description>
+                        Permanently delete this source and all its synced documents, credentials,
+                        and sync history.
+                    </Card.Description>
+                </div>
+                <Button
+                    variant="destructive"
+                    class="cursor-pointer"
+                    onclick={() => (showRemoveDialog = true)}>
+                    <Trash2 class="mr-2 h-4 w-4" />
+                    Delete Permanently
+                </Button>
+            </Card.Content>
+        </Card.Root>
+
+        <RemoveSourceDialog
+            bind:open={showRemoveDialog}
+            sourceId={data.source.id}
+            sourceName={data.source.name} />
     </div>
 </div>
