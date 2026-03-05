@@ -5,7 +5,7 @@ import { sources, serviceCredentials, syncRuns } from '$lib/server/db/schema'
 import { and, eq, inArray, desc, sql } from 'drizzle-orm'
 import { ulid } from 'ulid'
 import { logger } from '$lib/server/logger'
-import { SourceType } from '$lib/types'
+import { SourceType, DEFAULT_SYNC_INTERVAL_SECONDS } from '$lib/types'
 
 export const GET: RequestHandler = async ({ locals }) => {
     if (!locals.user) {
@@ -109,6 +109,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
             config: config || {},
             createdBy: locals.user.id,
             isActive: isActive ?? false,
+            syncIntervalSeconds: DEFAULT_SYNC_INTERVAL_SECONDS[sourceType as SourceType],
         })
         .returning()
 

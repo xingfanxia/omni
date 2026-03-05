@@ -1,17 +1,5 @@
-import {
-    pgTable,
-    text,
-    timestamp,
-    boolean,
-    jsonb,
-    bigint,
-    integer,
-    real,
-    pgEnum,
-    check,
-} from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, boolean, jsonb, bigint, integer } from 'drizzle-orm/pg-core'
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages.js'
-import { sql } from 'drizzle-orm'
 
 export const user = pgTable('users', {
     id: text('id').primaryKey(),
@@ -41,6 +29,7 @@ export const sources = pgTable('sources', {
     createdBy: text('created_by')
         .notNull()
         .references(() => user.id),
+    syncIntervalSeconds: integer('sync_interval_seconds'),
 })
 
 export const documents = pgTable('documents', {

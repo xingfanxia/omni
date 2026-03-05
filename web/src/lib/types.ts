@@ -75,6 +75,24 @@ export interface HubspotSourceConfig {
     portal_id?: string
 }
 
+export const DEFAULT_SYNC_INTERVAL_SECONDS: Record<SourceType, number> = {
+    [SourceType.GOOGLE_DRIVE]: 1800,
+    [SourceType.GMAIL]: 1800,
+    [SourceType.SLACK]: 1800,
+    [SourceType.OUTLOOK]: 1800,
+    [SourceType.ONE_DRIVE]: 1800,
+    [SourceType.CONFLUENCE]: 3600,
+    [SourceType.JIRA]: 3600,
+    [SourceType.GITHUB]: 3600,
+    [SourceType.NOTION]: 3600,
+    [SourceType.HUBSPOT]: 3600,
+    [SourceType.SHARE_POINT]: 3600,
+    [SourceType.OUTLOOK_CALENDAR]: 3600,
+    [SourceType.FIREFLIES]: 3600,
+    [SourceType.LOCAL_FILES]: 86400,
+    [SourceType.WEB]: 86400,
+}
+
 export const EMBEDDING_PROVIDER_TYPES = ['local', 'jina', 'openai', 'cohere', 'bedrock'] as const
 export type EmbeddingProviderType = (typeof EMBEDDING_PROVIDER_TYPES)[number]
 
