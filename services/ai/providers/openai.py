@@ -6,7 +6,6 @@ Uses the OpenAI Responses API (client.responses.create).
 
 import json
 import logging
-import time
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -17,6 +16,7 @@ from anthropic.types import (
     RawMessageStartEvent,
     RawContentBlockStartEvent,
     RawContentBlockDeltaEvent,
+    RawContentBlockStopEvent,
     RawMessageStopEvent,
     ToolUseBlock,
     TextBlock,
@@ -91,19 +91,6 @@ class OpenAIProvider(LLMProvider):
 
             stream = await self.client.responses.create(**request_params)
 
-            # Emit message_start
-            yield RawMessageStartEvent(
-                type="message_start",
-                message=Message(
-                    id=str(time.time_ns()),
-                    type="message",
-                    role="assistant",
-                    content=[],
-                    model=self.model,
-                    usage=Usage(input_tokens=0, output_tokens=0),
-                ),
-            )
-
             text_started = False
             current_text_index = 0
             tool_call_indices: dict[str, int] = {}  # call_id -> content block index
@@ -111,6 +98,21 @@ class OpenAIProvider(LLMProvider):
 
             async for event in stream:
                 event_type = event.type
+
+                # Handle response.created — emit message_start with real ID/model
+                if event_type == "response.created":
+                    yield RawMessageStartEvent(
+                        type="message_start",
+                        message=Message(
+                            id=event.response.id,
+                            type="message",
+                            role="assistant",
+                            content=[],
+                            model=event.response.model,
+                            usage=Usage(input_tokens=0, output_tokens=0),
+                        ),
+                    )
+                    continue
 
                 # Handle text deltas
                 if event_type == "response.output_text.delta":
@@ -136,7 +138,7 @@ class OpenAIProvider(LLMProvider):
                     if item.type == "function_call":
                         block_index = next_block_index
                         next_block_index += 1
-                        tool_call_indices[item.call_id] = block_index
+                        tool_call_indices[item.id] = block_index
                         yield RawContentBlockStartEvent(
                             type="content_block_start",
                             index=block_index,
@@ -159,6 +161,24 @@ class OpenAIProvider(LLMProvider):
                                 type="input_json_delta",
                                 partial_json=event.delta,
                             ),
+                        )
+
+                # Handle text block done
+                elif event_type == "response.output_text.done":
+                    if text_started:
+                        yield RawContentBlockStopEvent(
+                            type="content_block_stop",
+                            index=current_text_index,
+                        )
+                        text_started = False
+
+                # Handle tool block done
+                elif event_type == "response.output_item.done":
+                    item = event.item
+                    if item.type == "function_call" and item.id in tool_call_indices:
+                        yield RawContentBlockStopEvent(
+                            type="content_block_stop",
+                            index=tool_call_indices[item.id],
                         )
 
                 # Handle completion
