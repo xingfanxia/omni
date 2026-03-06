@@ -168,7 +168,7 @@ export class ChatMessageRepository {
         this.db = dbInstance
     }
 
-    async create(chatId: string, message: MessageParam): Promise<ChatMessage> {
+    async create(chatId: string, message: MessageParam, parentId?: string): Promise<ChatMessage> {
         const nextSeqNum = await this.getNextSequenceNumber(chatId)
         const contentText = extractContentText(message)
 
@@ -178,6 +178,7 @@ export class ChatMessageRepository {
             .values({
                 id: messageId,
                 chatId,
+                parentId: parentId || null,
                 messageSeqNum: nextSeqNum,
                 message,
                 contentText,
@@ -222,6 +223,47 @@ export class ChatMessageRepository {
             .limit(1)
 
         return (lastMessage?.maxSeq || 0) + 1
+    }
+
+    async getActivePath(chatId: string): Promise<ChatMessage[]> {
+        const result = await this.db.execute(sql`
+            WITH RECURSIVE walk_up AS (
+                SELECT cm.id, cm.chat_id, cm.parent_id, cm.message_seq_num, cm.message, cm.content_text, cm.created_at
+                FROM (
+                    SELECT *
+                    FROM chat_messages
+                    WHERE chat_id = ${chatId}
+                    AND id NOT IN (
+                        SELECT DISTINCT parent_id FROM chat_messages
+                        WHERE chat_id = ${chatId} AND parent_id IS NOT NULL
+                    )
+                    ORDER BY message_seq_num DESC
+                    LIMIT 1
+                ) cm
+
+                UNION ALL
+
+                SELECT cm.id, cm.chat_id, cm.parent_id, cm.message_seq_num, cm.message, cm.content_text, cm.created_at
+                FROM chat_messages cm
+                JOIN walk_up wu ON cm.id = wu.parent_id
+            )
+            SELECT * FROM walk_up ORDER BY message_seq_num
+        `)
+
+        return result.map((row: any) => ({
+            id: row.id,
+            chatId: row.chat_id,
+            parentId: row.parent_id,
+            messageSeqNum: row.message_seq_num,
+            message: row.message,
+            contentText: row.content_text,
+            createdAt: row.created_at,
+        }))
+    }
+
+    async getLastMessageInActivePath(chatId: string): Promise<ChatMessage | null> {
+        const path = await this.getActivePath(chatId)
+        return path.length > 0 ? path[path.length - 1] : null
     }
 
     async deleteByChat(chatId: string): Promise<number> {

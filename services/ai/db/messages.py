@@ -19,7 +19,9 @@ class MessagesRepository:
             return self.pool
         return await get_db_pool()
 
-    async def create(self, chat_id: str, message: Dict[str, Any]) -> ChatMessage:
+    async def create(
+        self, chat_id: str, message: Dict[str, Any], parent_id: Optional[str] = None
+    ) -> ChatMessage:
         """Create a new message in a chat"""
         pool = await self._get_pool()
 
@@ -36,13 +38,13 @@ class MessagesRepository:
             next_seq = await conn.fetchval(seq_query, chat_id)
 
             query = """
-                INSERT INTO chat_messages (id, chat_id, message_seq_num, message, created_at)
-                VALUES ($1, $2, $3, $4, NOW())
-                RETURNING id, chat_id, message_seq_num, message, created_at
+                INSERT INTO chat_messages (id, chat_id, message_seq_num, message, parent_id, created_at)
+                VALUES ($1, $2, $3, $4, $5, NOW())
+                RETURNING id, chat_id, message_seq_num, message, parent_id, created_at
             """
 
             row = await conn.fetchrow(
-                query, message_id, chat_id, next_seq, json.dumps(message)
+                query, message_id, chat_id, next_seq, json.dumps(message), parent_id
             )
 
         return ChatMessage.from_row(dict(row))
@@ -52,10 +54,49 @@ class MessagesRepository:
         pool = await self._get_pool()
 
         query = """
-            SELECT id, chat_id, message_seq_num, message, created_at
+            SELECT id, chat_id, message_seq_num, message, parent_id, created_at
             FROM chat_messages
             WHERE chat_id = $1
             ORDER BY message_seq_num
+        """
+
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(query, chat_id)
+
+        return [ChatMessage.from_row(dict(row)) for row in rows]
+
+    async def get_active_path(self, chat_id: str) -> List[ChatMessage]:
+        """Get the active branch path (path from root to the leaf with the highest message_seq_num).
+
+        Finds the latest leaf (message with no children and highest seq num),
+        then walks up via parent_id to root, and returns in root-to-leaf order.
+        """
+        pool = await self._get_pool()
+
+        query = """
+            WITH RECURSIVE walk_up AS (
+                -- Start from the latest leaf (no children, highest seq num)
+                SELECT cm.id, cm.chat_id, cm.message_seq_num, cm.message, cm.parent_id, cm.created_at
+                FROM (
+                    SELECT *
+                    FROM chat_messages
+                    WHERE chat_id = $1
+                    AND id NOT IN (
+                        SELECT DISTINCT parent_id FROM chat_messages
+                        WHERE chat_id = $1 AND parent_id IS NOT NULL
+                    )
+                    ORDER BY message_seq_num DESC
+                    LIMIT 1
+                ) cm
+
+                UNION ALL
+
+                -- Walk up to root via parent_id
+                SELECT cm.id, cm.chat_id, cm.message_seq_num, cm.message, cm.parent_id, cm.created_at
+                FROM chat_messages cm
+                JOIN walk_up wu ON cm.id = wu.parent_id
+            )
+            SELECT * FROM walk_up ORDER BY message_seq_num
         """
 
         async with pool.acquire() as conn:

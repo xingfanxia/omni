@@ -90,6 +90,10 @@ export const GET: RequestHandler = async ({ params, locals }) => {
             throw new Error('Response body is null')
         }
 
+        // Track the last saved message ID to chain parent_id during streaming
+        const lastActiveMessage = await chatMessageRepository.getLastMessageInActivePath(chatId)
+        let lastSavedMessageId: string | undefined = lastActiveMessage?.id
+
         const decoder = new TextDecoder()
         const encoder = new TextEncoder()
         let buffer = ''
@@ -148,7 +152,9 @@ export const GET: RequestHandler = async ({ params, locals }) => {
                                     const { id: messageId } = await chatMessageRepository.create(
                                         chatId,
                                         message,
+                                        lastSavedMessageId,
                                     )
+                                    lastSavedMessageId = messageId
                                     logger.debug('Saved message to database', {
                                         chatId,
                                         role: message.role,

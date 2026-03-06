@@ -496,7 +496,7 @@
     {#if effectivePopoverItems.length > 0}
         <Popover.Root open={effectiveShowPopover}>
             <Popover.Content
-                class="w-full rounded-b-xl p-0"
+                class="w-2xl rounded-b-xl p-0"
                 align="start"
                 sideOffset={-1}
                 alignOffset={-1}

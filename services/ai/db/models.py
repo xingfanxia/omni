@@ -109,6 +109,7 @@ class ChatMessage:
     message_seq_num: int
     message: Dict[str, Any]  # Full JSONB message content
     created_at: datetime
+    parent_id: Optional[str] = None
 
     @classmethod
     def from_row(cls, row: dict) -> "ChatMessage":
@@ -121,6 +122,7 @@ class ChatMessage:
             message_seq_num=row["message_seq_num"],
             message=row["message"],
             created_at=row["created_at"],
+            parent_id=row.get("parent_id"),
         )
 
     def to_dict(self) -> dict:
@@ -130,5 +132,6 @@ class ChatMessage:
             "chat_id": self.chat_id,
             "message_seq_num": self.message_seq_num,
             "message": self.message,
+            "parent_id": self.parent_id,
             "created_at": self.created_at.isoformat(),
         }

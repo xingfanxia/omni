@@ -173,6 +173,7 @@ export const chatMessages = pgTable('chat_messages', {
     chatId: text('chat_id')
         .notNull()
         .references(() => chats.id, { onDelete: 'cascade' }),
+    parentId: text('parent_id'),
     messageSeqNum: integer('message_seq_num').notNull(),
     message: jsonb('message').$type<MessageParam>().notNull(),
     contentText: text('content_text'),

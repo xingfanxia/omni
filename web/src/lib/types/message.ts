@@ -60,4 +60,8 @@ export type ProcessedMessage = {
     origMessageId: string
     role: 'user' | 'assistant'
     content: MessageContent
+    parentMessageId?: string
+    siblingIds?: string[]
+    siblingIndex?: number
+    createdAt?: Date
 }

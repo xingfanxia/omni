@@ -21,6 +21,9 @@
         CircleAlertIcon,
         ExternalLink,
         FileText,
+        Pencil,
+        ChevronLeft,
+        ChevronRight,
     } from '@lucide/svelte'
     import { marked } from 'marked'
     import { onMount } from 'svelte'
@@ -60,6 +63,8 @@
 
     afterNavigate(() => {
         chatMessages = [...data.messages]
+        branchSelections = {}
+        editingMessageId = null
     })
 
     let userMessage = $state('')
@@ -70,11 +75,16 @@
     let error = $state<string | null>(null)
     let eventSource: EventSource | null = $state(null)
 
-    let processedMessages = $derived(processMessages(chatMessages))
     let copiedMessageId = $state<number | null>(null)
     let copiedUrl = $state(false)
     let messageFeedback = $state<Record<string, 'upvote' | 'downvote'>>({})
     let pendingApproval = $state<ApprovalRequiredEvent | null>(null)
+    let editingMessageId = $state<string | null>(null)
+    let editingContent = $state('')
+    // Tracks user's branch choices: parentId -> chosen childId
+    let branchSelections = $state<Record<string, string>>({})
+
+    let processedMessages = $derived(processMessages(chatMessages))
 
     function copyMessageToClipboard(message: ProcessedMessage) {
         const content = message.content
@@ -175,10 +185,152 @@
         return citations
     }
 
+    // Groups messages by parentId, sorted by seq num within each group
+    function buildChildrenMap(messages: ChatMessage[]): Map<string | null, ChatMessage[]> {
+        const childrenMap = new Map<string | null, ChatMessage[]>()
+        for (const msg of messages) {
+            const parentKey = msg.parentId ?? null
+            if (!childrenMap.has(parentKey)) {
+                childrenMap.set(parentKey, [])
+            }
+            childrenMap.get(parentKey)!.push(msg)
+        }
+        for (const children of childrenMap.values()) {
+            children.sort((a, b) => a.messageSeqNum - b.messageSeqNum)
+        }
+        return childrenMap
+    }
+
+    // Build the display path from the message tree based on branch selections
+    function getDisplayPath(chatMessages: ChatMessage[]): ChatMessage[] {
+        if (chatMessages.length === 0) return []
+
+        const childrenMap = buildChildrenMap(chatMessages)
+
+        // Walk from root, choosing branches based on branchSelections or defaulting to the child with highest seq num
+        const path: ChatMessage[] = []
+        const roots = childrenMap.get(null) || []
+        if (roots.length === 0) return []
+
+        // Pick root (there should be only one, but default to highest seq num)
+        let current: ChatMessage = branchSelections['.root']
+            ? roots.find((r) => r.id === branchSelections['.root']) || roots[roots.length - 1]
+            : roots[roots.length - 1]
+
+        while (current) {
+            path.push(current)
+            const children = childrenMap.get(current.id)
+            if (!children || children.length === 0) break
+
+            const selectedChildId = branchSelections[current.id]
+            if (selectedChildId) {
+                const selected = children.find((c) => c.id === selectedChildId)
+                current = selected || children[children.length - 1]
+            } else {
+                // Default: pick child with highest seq num (active branch)
+                current = children[children.length - 1]
+            }
+        }
+
+        return path
+    }
+
+    // Compute sibling info for each message in the display path
+    function computeSiblingInfo(
+        chatMessages: ChatMessage[],
+    ): Map<string, { siblingIds: string[]; siblingIndex: number }> {
+        const childrenMap = buildChildrenMap(chatMessages)
+
+        const result = new Map<string, { siblingIds: string[]; siblingIndex: number }>()
+        for (const [, siblings] of childrenMap) {
+            const ids = siblings.map((s) => s.id)
+            for (let i = 0; i < siblings.length; i++) {
+                result.set(siblings[i].id, { siblingIds: ids, siblingIndex: i })
+            }
+        }
+        return result
+    }
+
+    function switchBranch(parentId: string | null, direction: 'prev' | 'next') {
+        const parentKey = parentId ?? null
+        const childrenMap = buildChildrenMap(chatMessages)
+
+        const siblings = childrenMap.get(parentKey)
+        if (!siblings || siblings.length <= 1) return
+
+        const selectionKey = parentKey === null ? '.root' : parentKey!
+        const currentId = branchSelections[selectionKey]
+        let currentIdx = currentId
+            ? siblings.findIndex((s) => s.id === currentId)
+            : siblings.length - 1
+        if (currentIdx === -1) currentIdx = siblings.length - 1
+
+        const newIdx =
+            direction === 'prev'
+                ? Math.max(0, currentIdx - 1)
+                : Math.min(siblings.length - 1, currentIdx + 1)
+
+        branchSelections[selectionKey] = siblings[newIdx].id
+        // Clear downstream selections so we follow the default (active) path from here
+        clearDownstreamSelections(siblings[newIdx].id)
+    }
+
+    function clearDownstreamSelections(fromId: string) {
+        const childrenMap = buildChildrenMap(chatMessages)
+
+        const queue = [fromId]
+        while (queue.length > 0) {
+            const id = queue.shift()!
+            delete branchSelections[id]
+            const children = childrenMap.get(id) || []
+            for (const child of children) {
+                queue.push(child.id)
+            }
+        }
+    }
+
+    async function handleEdit(origMessageId: string, newContent: string) {
+        editingMessageId = null
+        const response = await fetch(`/api/chat/${data.chat.id}/messages/${origMessageId}/edit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: newContent }),
+        })
+
+        if (!response.ok) {
+            console.error('Failed to edit message')
+            return
+        }
+
+        const { messageId } = await response.json()
+
+        // Find the original message's parent to set the branch selection
+        const origMsg = chatMessages.find((m) => m.id === origMessageId)
+        const parentKey = origMsg?.parentId ?? '.root'
+
+        const newUserMessage: ChatMessage = {
+            id: messageId,
+            chatId: data.chat.id,
+            parentId: origMsg?.parentId ?? null,
+            message: { role: 'user', content: newContent },
+            messageSeqNum: chatMessages.length + 1,
+            createdAt: new Date(),
+        }
+        chatMessages.push(newUserMessage)
+
+        // Select the new branch
+        branchSelections[parentKey] = messageId
+        clearDownstreamSelections(messageId)
+
+        streamResponse(data.chat.id)
+    }
+
     // Converts messages into a format that makes it easy to render the messages
     // E.g., combines multiple content blocks into a single content block, handles citations, etc.
     function processMessages(chatMessages: ChatMessage[]): ProcessedMessage[] {
         const processedMessages: ProcessedMessage[] = []
+        const siblingInfo = computeSiblingInfo(chatMessages)
+        const displayPath = getDisplayPath(chatMessages)
 
         const addMessage = (message: ProcessedMessage) => {
             const lastMessage = processedMessages[processedMessages.length - 1]
@@ -189,6 +341,10 @@
                     origMessageId: message.origMessageId,
                     role: message.role,
                     content: [] as MessageContent,
+                    parentMessageId: message.parentMessageId,
+                    siblingIds: message.siblingIds,
+                    siblingIndex: message.siblingIndex,
+                    createdAt: message.createdAt,
                 }
                 processedMessages.push(newMessage)
                 messageToUpdate = newMessage
@@ -247,10 +403,12 @@
             }
         }
 
-        const messages = chatMessages.map((m) => m.message)
-        for (let i = 0; i < messages.length; i++) {
-            const message = messages[i]
+        for (let i = 0; i < displayPath.length; i++) {
+            const chatMsg = displayPath[i]
+            const message = chatMsg.message
+            const info = siblingInfo.get(chatMsg.id)
             const messageCitations: TextCitationParam[] = [] // All citations in this message
+
             if (isUserMessage(message)) {
                 // User messages are expected to contain only text blocks
                 const userMessageContent: MessageContent =
@@ -266,9 +424,16 @@
 
                 const processedUserMessage: ProcessedMessage = {
                     id: processedMessages.length,
-                    origMessageId: chatMessages[i].id,
+                    origMessageId: chatMsg.id,
                     role: 'user',
                     content: userMessageContent,
+                    parentMessageId: chatMsg.parentId ?? undefined,
+                    siblingIds: info?.siblingIds,
+                    siblingIndex: info?.siblingIndex,
+                    createdAt:
+                        chatMsg.createdAt instanceof Date
+                            ? chatMsg.createdAt
+                            : new Date(chatMsg.createdAt),
                 }
 
                 addMessage(processedUserMessage)
@@ -276,9 +441,16 @@
                 // Here we handle both assistant messages (with possible tool uses) and also user messages that contain tool results
                 const processedMessage: ProcessedMessage = {
                     id: processedMessages.length,
-                    origMessageId: chatMessages[i].id,
+                    origMessageId: chatMsg.id,
                     role: 'assistant',
                     content: [],
+                    parentMessageId: chatMsg.parentId ?? undefined,
+                    siblingIds: info?.siblingIds,
+                    siblingIndex: info?.siblingIndex,
+                    createdAt:
+                        chatMsg.createdAt instanceof Date
+                            ? chatMsg.createdAt
+                            : new Date(chatMsg.createdAt),
                 }
 
                 const contentBlocks = Array.isArray(message.content)
@@ -360,9 +532,6 @@
                 }
 
                 // Add a separate block containing all the citation links
-                // This will append a text block at the end that looks like the following:
-                //      [Marked]: https://github.com/markedjs/marked/
-                //      [Markdown]: http://daringfireball.net/projects/markdown/
                 if (messageCitations.length > 0) {
                     const citationSourceTxt = messageCitations
                         .map((c, idx) => {
@@ -535,9 +704,13 @@
                         blocks.push(block)
                     }
                 } else {
+                    const displayPath = getDisplayPath(chatMessages)
+                    const toolParentId =
+                        displayPath.length > 0 ? displayPath[displayPath.length - 1].id : undefined
                     chatMessages.push({
                         id: `temp-${Date.now()}`,
                         chatId,
+                        parentId: toolParentId ?? null,
                         message: {
                             role: 'user',
                             content: [block],
@@ -565,9 +738,14 @@
             try {
                 const data: MessageStreamEvent | ToolResultBlockParam = JSON.parse(event.data)
                 if (data.type === 'message_start') {
+                    // Find the last message in current display path to use as parent
+                    const displayPath = getDisplayPath(chatMessages)
+                    const streamParentId =
+                        displayPath.length > 0 ? displayPath[displayPath.length - 1].id : undefined
                     chatMessages.push({
                         id: `temp-${Date.now()}`,
                         chatId,
+                        parentId: streamParentId ?? null,
                         message: {
                             role: data.message.role,
                             content: data.message.content,
@@ -678,6 +856,11 @@
     async function handleSubmit() {
         const userMsg = userMessage.trim()
         if (userMsg) {
+            // Determine parentId: last message in current display path
+            const displayPath = getDisplayPath(chatMessages)
+            const parentId =
+                displayPath.length > 0 ? displayPath[displayPath.length - 1].id : undefined
+
             const response = await fetch(`/api/chat/${data.chat.id}/messages`, {
                 method: 'POST',
                 headers: {
@@ -686,6 +869,7 @@
                 body: JSON.stringify({
                     content: userMsg,
                     role: 'user',
+                    parentId,
                 }),
             })
 
@@ -695,16 +879,16 @@
             }
 
             const { messageId } = await response.json()
-            console.log('Sent message with ID:', messageId)
 
             const newUserMessage: ChatMessage = {
                 id: messageId,
                 chatId: data.chat.id,
+                parentId: parentId ?? null,
                 message: {
                     role: 'user',
                     content: userMsg,
                 },
-                messageSeqNum: data.messages.length,
+                messageSeqNum: chatMessages.length + 1,
                 createdAt: new Date(),
             }
             chatMessages.push(newUserMessage)
@@ -769,6 +953,21 @@
         return sanitized
     }
 
+    function formatMessageTimestamp(date: Date): string {
+        const now = new Date()
+        const isToday =
+            date.getDate() === now.getDate() &&
+            date.getMonth() === now.getMonth() &&
+            date.getFullYear() === now.getFullYear()
+
+        if (isToday) {
+            return date
+                .toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+                .toLowerCase()
+        }
+        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    }
+
     function extractDomain(url: string): string {
         try {
             const urlObj = new URL(url)
@@ -783,8 +982,108 @@
     <title>{data.chat.title} - Omni</title>
 </svelte:head>
 
+{#snippet branchNavigation(message: ProcessedMessage)}
+    <div
+        class="text-muted-foreground flex items-center gap-0.5 text-xs opacity-0 transition-opacity group-hover:opacity-100">
+        <Button
+            size="icon"
+            variant="ghost"
+            class="h-6 w-6 cursor-pointer"
+            disabled={message.siblingIndex === 0}
+            onclick={() => switchBranch(message.parentMessageId ?? null, 'prev')}>
+            <ChevronLeft class="h-3.5 w-3.5" />
+        </Button>
+        <span class="min-w-[3ch] text-center"
+            >{(message.siblingIndex ?? 0) + 1}/{message.siblingIds?.length ?? 1}</span>
+        <Button
+            size="icon"
+            variant="ghost"
+            class="h-6 w-6 cursor-pointer"
+            disabled={message.siblingIndex === (message.siblingIds?.length ?? 1) - 1}
+            onclick={() => switchBranch(message.parentMessageId ?? null, 'next')}>
+            <ChevronRight class="h-3.5 w-3.5" />
+        </Button>
+    </div>
+{/snippet}
+
+{#snippet messageTimestamp(message: ProcessedMessage)}
+    {#if message.createdAt}
+        <span
+            class="text-muted-foreground text-xs opacity-0 transition-opacity group-hover:opacity-100">
+            {formatMessageTimestamp(message.createdAt)}
+        </span>
+    {/if}
+{/snippet}
+
+{#snippet userMessageContent(message: ProcessedMessage)}
+    {#if editingMessageId === message.origMessageId}
+        <div class="w-full max-w-[80%]">
+            <textarea
+                class="border-border bg-card w-full resize-none rounded-2xl border px-6 py-4 text-sm focus:outline-none"
+                rows={3}
+                bind:value={editingContent}
+                onkeydown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        handleEdit(message.origMessageId, editingContent)
+                    }
+                }}></textarea>
+            <div class="mt-1 flex justify-end gap-1">
+                <Button
+                    size="sm"
+                    class="cursor-pointer"
+                    onclick={() => handleEdit(message.origMessageId, editingContent)}>
+                    Submit
+                </Button>
+                <Button
+                    size="sm"
+                    variant="outline"
+                    class="cursor-pointer"
+                    onclick={() => (editingMessageId = null)}>
+                    Cancel
+                </Button>
+            </div>
+        </div>
+    {:else}
+        <div class="max-w-[80%]">
+            <div class="text-foreground rounded-2xl bg-gray-200 px-6 py-4">
+                {@html marked.parse((message.content[0] as TextMessageContent).text)}
+            </div>
+            <div class="mt-1 flex items-center justify-end gap-1">
+                {@render messageTimestamp(message)}
+                {#if message.siblingIds && message.siblingIds.length > 1}
+                    {@render branchNavigation(message)}
+                {/if}
+                {#if !isStreaming}
+                    <Button
+                        size="icon"
+                        variant="ghost"
+                        class="h-7 w-7 cursor-pointer opacity-0 transition-opacity group-hover:opacity-100"
+                        onclick={() => copyMessageToClipboard(message)}>
+                        {#if copiedMessageId === message.id}
+                            <Check class="h-3.5 w-3.5 text-green-600" />
+                        {:else}
+                            <Copy class="h-3.5 w-3.5" />
+                        {/if}
+                    </Button>
+                    <Button
+                        size="icon"
+                        variant="ghost"
+                        class="h-7 w-7 cursor-pointer opacity-0 transition-opacity group-hover:opacity-100"
+                        onclick={() => {
+                            editingMessageId = message.origMessageId
+                            editingContent = (message.content[0] as TextMessageContent).text
+                        }}>
+                        <Pencil class="h-3.5 w-3.5" />
+                    </Button>
+                {/if}
+            </div>
+        </div>
+    {/if}
+{/snippet}
+
 {#snippet messageControls(message: ProcessedMessage)}
-    <div class="mt-2 flex items-center justify-start gap-0.5" data-role="message-controls">
+    <div class="flex items-center justify-start gap-0.5" data-role="message-controls">
         <!-- Copy message, feedback upvote/downvote -->
         <Tooltip.Provider delayDuration={300}>
             <Tooltip.Root>
@@ -910,7 +1209,7 @@
 <div class="flex h-full flex-col">
     <!-- Chat Container -->
     <div bind:this={chatContainerRef} class="flex w-full flex-1 flex-col overflow-y-auto px-4 pt-6">
-        <div class="mx-auto mb-20 flex w-full max-w-4xl flex-1 flex-col gap-6">
+        <div class="mx-auto mb-20 flex w-full max-w-4xl flex-1 flex-col gap-1">
             {#if data.modelDisplayName}
                 <div class="flex justify-center">
                     <span class="text-muted-foreground rounded-full border px-3 py-0.5 text-xs">
@@ -923,27 +1222,19 @@
                 {#if message.role === 'user'}
                     <!-- User Message -->
                     {#if i === processedMessages.length - 1}
-                        <div class="flex" bind:this={lastUserMessageRef}>
-                            <div
-                                class="text-foreground max-w-[80%] rounded-2xl bg-gray-200 px-6 py-4">
-                                {@html marked.parse(
-                                    (message.content[0] as TextMessageContent).text,
-                                )}
-                            </div>
+                        <div
+                            class="group mt-8 flex flex-col items-start"
+                            bind:this={lastUserMessageRef}>
+                            {@render userMessageContent(message)}
                         </div>
                     {:else}
-                        <div class="flex">
-                            <div
-                                class="text-foreground max-w-[80%] rounded-2xl bg-gray-200 px-6 py-4">
-                                {@html marked.parse(
-                                    (message.content[0] as TextMessageContent).text,
-                                )}
-                            </div>
+                        <div class="group mt-8 flex flex-col items-start">
+                            {@render userMessageContent(message)}
                         </div>
                     {/if}
                 {:else if message.role === 'assistant'}
                     <!-- Assistant Message -->
-                    <div class="flex flex-col gap-1">
+                    <div class="group flex flex-col gap-1">
                         <div class="prose prose-p:my-3 max-w-none">
                             {#each message.content as block (block.id)}
                                 {#if block.type === 'text'}
@@ -958,9 +1249,14 @@
                             {/each}
                         </div>
                         {@render sourcesSection(collectSources(message))}
-                        {#if !(isStreaming && i === processedMessages.length - 1)}
-                            {@render messageControls(message)}
-                        {/if}
+                        <div class="flex items-center gap-1">
+                            {#if message.siblingIds && message.siblingIds.length > 1}
+                                {@render branchNavigation(message)}
+                            {/if}
+                            {#if !(isStreaming && i === processedMessages.length - 1)}
+                                {@render messageControls(message)}
+                            {/if}
+                        </div>
                     </div>
                 {/if}
             {/each}

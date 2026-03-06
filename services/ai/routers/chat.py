@@ -255,7 +255,7 @@ async def stream_chat(
     llm_provider = _resolve_llm_provider(request.app.state, chat)
 
     messages_repo = MessagesRepository()
-    chat_messages = await messages_repo.get_by_chat(chat_id)
+    chat_messages = await messages_repo.get_active_path(chat_id)
     if not chat_messages:
         raise HTTPException(status_code=404, detail="No messages found for chat")
 
