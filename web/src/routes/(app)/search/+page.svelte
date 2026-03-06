@@ -1,11 +1,11 @@
 <script lang="ts">
     import { page } from '$app/stores'
     import AIAnswer from '$lib/components/ai-answer.svelte'
+    import SearchResultItem from '$lib/components/search-results/search-result-item.svelte'
     import { Button } from '$lib/components/ui/button/index.js'
     import { Input } from '$lib/components/ui/input/index.js'
-    import { getDocumentIconPath, getSourceIconPath } from '$lib/utils/icons'
+    import { getSourceIconPath } from '$lib/utils/icons'
     import { FileText, Funnel, Search } from '@lucide/svelte'
-    import { marked } from 'marked'
     import type { PageData } from './$types.js'
 
     let { data }: { data: PageData } = $props()
@@ -98,120 +98,6 @@
         if (event.key === 'Enter') {
             handleSearch()
         }
-    }
-
-    function formatDate(dateStr: string) {
-        return new Date(dateStr).toLocaleDateString()
-    }
-
-    function truncateContent(content: string, maxLength: number = 200) {
-        if (content.length <= maxLength) return content
-        return content.substring(0, maxLength) + '...'
-    }
-
-    function getSourceIcon(
-        sourceId: string,
-        contentType: string,
-    ): { iconPath: string | null; useFileText: boolean } {
-        const sourceType = sourcesLookup.get(sourceId)
-        if (!sourceType) {
-            return { iconPath: null, useFileText: true }
-        }
-
-        const iconPath = getDocumentIconPath(sourceType, contentType)
-        return { iconPath, useFileText: !iconPath }
-    }
-
-    function formatUrlAsBreadcrumbs(url: string, maxLength: number = 120): string {
-        if (!url || url === 'No URL available') return url
-
-        try {
-            const urlObj = new URL(url)
-            const domain = urlObj.hostname
-            const pathParts = urlObj.pathname.split('/').filter((part) => part && part !== '')
-
-            if (pathParts.length === 0) {
-                return domain
-            }
-
-            const breadcrumb = [domain, ...pathParts].join(' › ')
-
-            if (breadcrumb.length <= maxLength) {
-                return breadcrumb
-            }
-
-            // Breadcrumb is too long - truncate middle components
-            // Find the shortest contiguous subsequence to remove from the middle
-            const separator = ' › '
-            const ellipsis = '…'
-
-            // Account for domain and separators in the budget
-            const domainLength = domain.length + separator.length
-            const ellipsisLength = ellipsis.length + separator.length * 2
-            let budget = maxLength - domainLength
-
-            // Find minimal interval [i, j) to remove
-            let i = 0
-            let j = pathParts.length
-
-            // Try progressively larger intervals to remove
-            for (let removeCount = 0; removeCount <= pathParts.length; removeCount++) {
-                // Try different positions for the interval
-                for (let start = 0; start <= pathParts.length - removeCount; start++) {
-                    const end = start + removeCount
-
-                    // Calculate total length if we keep [0, start) and [end, pathParts.length)
-                    let totalLength = 0
-
-                    // Add length of kept parts from start
-                    for (let k = 0; k < start; k++) {
-                        totalLength += pathParts[k].length + separator.length
-                    }
-
-                    // Add length of kept parts from end
-                    for (let k = end; k < pathParts.length; k++) {
-                        totalLength += pathParts[k].length + separator.length
-                    }
-
-                    // Add ellipsis if we're removing something
-                    if (removeCount > 0 && start < end) {
-                        totalLength += ellipsisLength
-                    }
-
-                    if (totalLength <= budget) {
-                        i = start
-                        j = end
-                        break
-                    }
-                }
-
-                if (j !== pathParts.length || i !== 0) {
-                    break
-                }
-            }
-
-            // Build result
-            if (i === 0 && j === pathParts.length) {
-                // Keep everything
-                return breadcrumb
-            } else if (i === j) {
-                // No removal needed
-                return breadcrumb
-            } else {
-                // Remove [i, j)
-                const firstParts = pathParts.slice(0, i)
-                const lastParts = pathParts.slice(j)
-                const parts = [domain, ...firstParts, ellipsis, ...lastParts]
-                return parts.join(separator)
-            }
-        } catch {
-            return url
-        }
-    }
-
-    function renderHighlight(text: string): string {
-        // Parse as inline markdown to avoid wrapping in <p> tags
-        return marked.parse(text)
     }
 </script>
 
@@ -324,67 +210,7 @@
                 {#if data.searchResults.results.length > 0}
                     <div class="space-y-8">
                         {#each data.searchResults.results as result}
-                            {@const srcIcon = getSourceIcon(
-                                result.document.source_id,
-                                result.document.content_type,
-                            )}
-                            <div class="flex gap-3">
-                                <!-- Icon -->
-                                <div class="flex-shrink-0">
-                                    {#if srcIcon.useFileText}
-                                        <FileText class="h-5 w-5 text-gray-400" />
-                                    {:else}
-                                        <img
-                                            src={srcIcon.iconPath}
-                                            alt="Source icon"
-                                            class="h-7 w-7" />
-                                    {/if}
-                                </div>
-
-                                <!-- Content -->
-                                <div class="min-w-0 flex-1">
-                                    <!-- Title + URL as single link -->
-                                    <a
-                                        href={result.document.url || '#'}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        class="group block">
-                                        <h3
-                                            class="text-xl leading-tight text-blue-700 group-hover:underline">
-                                            {result.document.title}
-                                        </h3>
-                                        {#if result.document.url}
-                                            <div class="text-muted-foreground mb-1 text-sm">
-                                                {formatUrlAsBreadcrumbs(
-                                                    result.document.url || 'No URL available',
-                                                )}
-                                            </div>
-                                        {/if}
-                                    </a>
-
-                                    <!-- Date -->
-                                    <div class="mb-2 text-sm text-gray-500">
-                                        {formatDate(result.document.created_at)}
-                                    </div>
-
-                                    <!-- Excerpt/Content -->
-                                    {#if result.highlights.length > 0}
-                                        <div
-                                            class="highlight-content truncate overflow-hidden text-sm leading-relaxed text-gray-600">
-                                            {#each result.highlights.slice(0, 2) as highlight}
-                                                <span>{@html renderHighlight(highlight)}</span>
-                                                {#if highlight !== result.highlights[result.highlights.length - 1]}
-                                                    <span> ... </span>
-                                                {/if}
-                                            {/each}
-                                        </div>
-                                    {:else if result.content}
-                                        <div class="text-sm leading-relaxed text-gray-600">
-                                            {truncateContent(result.content)}
-                                        </div>
-                                    {/if}
-                                </div>
-                            </div>
+                            <SearchResultItem {result} {sourcesLookup} />
                         {/each}
                     </div>
 

@@ -1,3 +1,63 @@
+export interface DocumentMetadata {
+    title?: string
+    author?: string
+    created_at?: string
+    updated_at?: string
+    mime_type?: string
+    size?: string
+    url?: string
+    path?: string
+    extra?: Record<string, any>
+}
+
+export interface GmailExtra {
+    thread_id?: string
+    participants?: string[]
+}
+
+export interface SlackExtra {
+    slack?: {
+        channel_id?: string
+        message_count?: number
+        authors?: string[]
+        date?: string
+        thread_ts?: string
+    }
+}
+
+export interface GoogleDriveExtra {
+    file_id?: string
+    shared?: boolean
+    google_drive?: { parents?: string[]; parent_id?: string }
+}
+
+export interface ConfluenceExtra {
+    confluence?: { parent_id?: string; version?: number }
+}
+
+export interface JiraExtra {
+    jira?: { project_id?: string }
+}
+
+export interface JiraAttributes {
+    issue_key?: string
+    issue_type?: string
+    status?: string
+    status_category?: string
+    project_key?: string
+    project_name?: string
+    priority?: string
+    assignee?: string
+    reporter?: string
+    labels?: string[]
+    components?: string[]
+}
+
+export interface ConfluenceAttributes {
+    space_id?: string
+    status?: string
+}
+
 export interface Document {
     id: string
     title: string
@@ -6,6 +66,8 @@ export interface Document {
     content_type: string
     created_at: string
     updated_at: string
+    metadata?: DocumentMetadata
+    attributes?: Record<string, any>
 }
 
 export interface SearchResult {

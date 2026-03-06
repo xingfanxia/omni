@@ -59,8 +59,12 @@ export function getDocumentIconPath(sourceType: string, contentType: string): st
         return confluenceIcon
     } else if (sourceType === SourceType.JIRA) {
         return jiraIcon
+    } else if (sourceType === SourceType.SLACK) {
+        return slackIcon
     } else if (sourceType === SourceType.FIREFLIES) {
         return firefliesIcon
+    } else if (sourceType === SourceType.HUBSPOT) {
+        return hubspotIcon
     }
 
     // For other source types, return null (will use fallback icon)
