@@ -24,6 +24,7 @@
         Pencil,
         ChevronLeft,
         ChevronRight,
+        RotateCcw,
     } from '@lucide/svelte'
     import { marked } from 'marked'
     import { onMount } from 'svelte'
@@ -1049,7 +1050,7 @@
             <div class="text-foreground rounded-2xl bg-gray-200 px-6 py-4">
                 {@html marked.parse((message.content[0] as TextMessageContent).text)}
             </div>
-            <div class="mt-1 flex items-center justify-end gap-1">
+            <div class="mx-0.5 mt-1 flex items-center justify-end gap-1">
                 {@render messageTimestamp(message)}
                 {#if message.siblingIds && message.siblingIds.length > 1}
                     {@render branchNavigation(message)}
@@ -1059,12 +1060,12 @@
                         size="icon"
                         variant="ghost"
                         class="h-7 w-7 cursor-pointer opacity-0 transition-opacity group-hover:opacity-100"
-                        onclick={() => copyMessageToClipboard(message)}>
-                        {#if copiedMessageId === message.id}
-                            <Check class="h-3.5 w-3.5 text-green-600" />
-                        {:else}
-                            <Copy class="h-3.5 w-3.5" />
-                        {/if}
+                        onclick={() =>
+                            handleEdit(
+                                message.origMessageId,
+                                (message.content[0] as TextMessageContent).text,
+                            )}>
+                        <RotateCcw class="h-3.5 w-3.5" />
                     </Button>
                     <Button
                         size="icon"
@@ -1075,6 +1076,17 @@
                             editingContent = (message.content[0] as TextMessageContent).text
                         }}>
                         <Pencil class="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                        size="icon"
+                        variant="ghost"
+                        class="h-7 w-7 cursor-pointer opacity-0 transition-opacity group-hover:opacity-100"
+                        onclick={() => copyMessageToClipboard(message)}>
+                        {#if copiedMessageId === message.id}
+                            <Check class="h-3.5 w-3.5 text-green-600" />
+                        {:else}
+                            <Copy class="h-3.5 w-3.5" />
+                        {/if}
                     </Button>
                 {/if}
             </div>
