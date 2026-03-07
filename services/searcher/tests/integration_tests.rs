@@ -780,6 +780,86 @@ async fn test_score_threshold_filters_low_relevance() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_recency_boosting() -> Result<()> {
+    let fixture = SearcherTestFixture::new().await?;
+    let _doc_ids = fixture.seed_search_data().await?;
+
+    let source_id = "01JGF7V3E0Y2R1X8P5Q7W9T4N7";
+    let pool = fixture.test_env.db_pool.pool();
+
+    // Insert two documents with the same unique keyword "xylophone" but different
+    // metadata.updated_at timestamps (recency is determined by metadata, not the DB column).
+    // Doc A: metadata says updated today. Doc B: metadata says updated 365 days ago.
+    // With recency boosting (weight=0.2, half_life=30d), Doc A should score higher.
+    let content_storage = shared::ContentStorage::new(pool.clone());
+    let now = chrono::Utc::now();
+    let old = now - chrono::Duration::days(365);
+    for (ext_id, title, ts) in [
+        (
+            "recency_recent",
+            "Recent Xylophone Manual",
+            now.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+        ),
+        (
+            "recency_old",
+            "Old Xylophone Manual",
+            old.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+        ),
+    ] {
+        let doc_id = ulid::Ulid::new().to_string();
+        let content = "The xylophone is a musical instrument in the percussion family. This manual covers xylophone tuning, maintenance, and performance techniques.";
+        let content_id = content_storage.store_text(content.to_string()).await?;
+        let metadata = json!({"updated_at": ts});
+        sqlx::query(
+            r#"
+            INSERT INTO documents (id, source_id, external_id, title, content_id, content_type, content, metadata, permissions, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, 'documentation', $6, $7, '{"users":["user1"]}', NOW(), NOW())
+            "#,
+        )
+        .bind(&doc_id)
+        .bind(source_id)
+        .bind(ext_id)
+        .bind(title)
+        .bind(&content_id)
+        .bind(content)
+        .bind(&metadata)
+        .execute(pool)
+        .await?;
+    }
+
+    let (status, response) = fixture
+        .search("xylophone manual", Some("fulltext"), None)
+        .await?;
+    assert_eq!(status, StatusCode::OK);
+
+    let titles = result_titles(&response);
+    assert_eq!(
+        titles.len(),
+        2,
+        "Expected 2 results for 'xylophone manual', got: {:?}",
+        titles
+    );
+    assert_eq!(
+        titles[0], "Recent Xylophone Manual",
+        "Recent document should rank first due to recency boost, got: {:?}",
+        titles
+    );
+
+    // Verify the recent doc actually has a higher score
+    let results = response["results"].as_array().unwrap();
+    let recent_score = results[0]["score"].as_f64().unwrap();
+    let old_score = results[1]["score"].as_f64().unwrap();
+    assert!(
+        recent_score > old_score,
+        "Recent doc score ({}) should be higher than old doc score ({})",
+        recent_score,
+        old_score
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_invalid_search_mode() -> Result<()> {
     let fixture = SearcherTestFixture::new().await?;
 

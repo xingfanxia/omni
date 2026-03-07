@@ -236,6 +236,8 @@ impl SearchEngine {
                 request.offset(),
                 request.user_email().map(|e| e.as_str()),
                 request.document_id.as_deref(),
+                self.config.recency_boost_weight,
+                self.config.recency_half_life_days,
             )
             .await?;
 

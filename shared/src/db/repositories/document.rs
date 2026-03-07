@@ -256,6 +256,8 @@ impl DocumentRepository {
         offset: i64,
         user_email: Option<&str>,
         document_id: Option<&str>,
+        recency_boost_weight: f32,
+        recency_half_life_days: f32,
     ) -> Result<Vec<SearchHit>, DatabaseError> {
         if source_ids.is_empty() {
             return Ok(vec![]);
@@ -338,6 +340,19 @@ impl DocumentRepository {
 
         // When all query terms are stopwords, terms is empty — skip term_scores,
         // rank by phrase scoring only.
+        let weight_idx = param_idx + 2;
+        let half_life_idx = param_idx + 3;
+
+        let recency_expr = format!(
+            "(1.0 + ${w}::double precision * EXP(-EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - COALESCE(\
+                CASE WHEN d.metadata->>'updated_at' IS NOT NULL \
+                     AND pg_input_is_valid(d.metadata->>'updated_at', 'timestamptz') \
+                THEN (d.metadata->>'updated_at')::timestamptz END, \
+                d.updated_at))) / (86400.0 * ${h}::double precision)))::real",
+            w = weight_idx,
+            h = half_life_idx,
+        );
+
         let full_query = if terms.is_empty() {
             format!(
                 r#"
@@ -345,8 +360,9 @@ impl DocumentRepository {
                     {phrase_branch}
                 ),
                 ranked AS (
-                    SELECT id, score
-                    FROM phrase_scores
+                    SELECT ps.id, (ps.score * {recency_expr}) as score
+                    FROM phrase_scores ps
+                    JOIN documents d ON d.id = ps.id
                     ORDER BY score DESC
                     LIMIT ${limit_idx} OFFSET ${offset_idx}
                 )
@@ -366,6 +382,7 @@ impl DocumentRepository {
                 ) snip ON true
                 ORDER BY r.score DESC"#,
                 phrase_branch = phrase_branch,
+                recency_expr = recency_expr,
                 limit_idx = param_idx,
                 offset_idx = param_idx + 1,
             )
@@ -382,9 +399,10 @@ impl DocumentRepository {
                     SELECT id, SUM(score) as token_score FROM term_scores GROUP BY id
                 ),
                 ranked AS (
-                    SELECT c.id, c.token_score + COALESCE(p.score, 0) as score
+                    SELECT c.id, ((c.token_score + COALESCE(p.score, 0)) * {recency_expr}) as score
                     FROM combined c
                     LEFT JOIN phrase_scores p ON c.id = p.id
+                    JOIN documents d ON d.id = c.id
                     ORDER BY score DESC
                     LIMIT ${limit_idx} OFFSET ${offset_idx}
                 )
@@ -405,6 +423,7 @@ impl DocumentRepository {
                 ORDER BY r.score DESC"#,
                 term_union = term_branches.join("\nUNION ALL\n"),
                 phrase_branch = phrase_branch,
+                recency_expr = recency_expr,
                 limit_idx = param_idx,
                 offset_idx = param_idx + 1,
             )
@@ -429,7 +448,11 @@ impl DocumentRepository {
             query_builder = query_builder.bind(doc_id);
         }
 
-        query_builder = query_builder.bind(limit).bind(offset);
+        query_builder = query_builder
+            .bind(limit)
+            .bind(offset)
+            .bind(recency_boost_weight as f64)
+            .bind(recency_half_life_days as f64);
 
         let results = query_builder.fetch_all(&self.pool).await?;
 

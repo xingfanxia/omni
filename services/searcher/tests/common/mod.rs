@@ -36,6 +36,8 @@ impl SearcherTestFixture {
             rrf_k: 60.0,
             semantic_search_timeout_ms: 5000,
             rag_context_window: 2,
+            recency_boost_weight: 0.2,
+            recency_half_life_days: 30.0,
         };
 
         // Create content storage using PostgresStorage directly

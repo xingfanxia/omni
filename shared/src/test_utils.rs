@@ -279,7 +279,7 @@ fn test_documents() -> Vec<TestDoc> {
             content: "This is a comprehensive guide to Rust programming language. It covers memory safety, ownership, borrowing, and lifetimes. Rust is a systems programming language that runs blazingly fast, prevents segfaults, and guarantees thread safety.",
             content_type: "documentation",
             attributes: json!({"language": "rust", "category": "programming"}),
-            metadata: json!({"type": "documentation", "category": "programming"}),
+            metadata: json!({"type": "documentation", "category": "programming", "updated_at": "2026-03-05T10:00:00Z"}),
             permissions: json!({"users": ["user1"], "groups": ["engineers"]}),
         },
         TestDoc {
@@ -288,7 +288,7 @@ fn test_documents() -> Vec<TestDoc> {
             content: "Attendees discussed the roadmap for Q4. Key priorities include improving search functionality, implementing semantic search, and optimizing database queries. The team will focus on PostgreSQL performance and Redis caching.",
             content_type: "meeting_notes",
             attributes: json!({"category": "business", "quarter": "Q4"}),
-            metadata: json!({"type": "meeting", "date": "2024-01-15"}),
+            metadata: json!({"type": "meeting", "date": "2024-01-15", "updated_at": "2026-03-04T09:00:00Z"}),
             permissions: json!({"users": ["user1", "user2"], "groups": ["team"]}),
         },
         TestDoc {
@@ -297,7 +297,7 @@ fn test_documents() -> Vec<TestDoc> {
             content: "The search engine combines full-text search with vector embeddings. It uses PostgreSQL with pgvector extension for similarity search. The architecture includes caching layer with Redis and supports multiple search modes: fulltext, semantic, and hybrid.",
             content_type: "specification",
             attributes: json!({"category": "programming", "component": "search"}),
-            metadata: json!({"type": "specification", "project": "clio"}),
+            metadata: json!({"type": "specification", "project": "clio", "updated_at": "2026-03-06T15:30:00Z"}),
             permissions: json!({"users": ["user1"], "groups": ["architects"]}),
         },
         TestDoc {

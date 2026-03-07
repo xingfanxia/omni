@@ -24,6 +24,8 @@ pub struct SearcherConfig {
     pub rrf_k: f32,
     pub semantic_search_timeout_ms: u64,
     pub rag_context_window: i32,
+    pub recency_boost_weight: f32,
+    pub recency_half_life_days: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -189,6 +191,22 @@ impl SearcherConfig {
                 process::exit(1);
             });
 
+        let recency_boost_weight = get_optional_env("RECENCY_BOOST_WEIGHT", "0.2")
+            .parse::<f32>()
+            .unwrap_or_else(|_| {
+                eprintln!("ERROR: Invalid value for RECENCY_BOOST_WEIGHT");
+                eprintln!("Must be a non-negative float");
+                process::exit(1);
+            });
+
+        let recency_half_life_days = get_optional_env("RECENCY_HALF_LIFE_DAYS", "30.0")
+            .parse::<f32>()
+            .unwrap_or_else(|_| {
+                eprintln!("ERROR: Invalid value for RECENCY_HALF_LIFE_DAYS");
+                eprintln!("Must be a positive float");
+                process::exit(1);
+            });
+
         Self {
             database,
             redis,
@@ -197,6 +215,8 @@ impl SearcherConfig {
             rrf_k,
             semantic_search_timeout_ms,
             rag_context_window,
+            recency_boost_weight,
+            recency_half_life_days,
         }
     }
 }
