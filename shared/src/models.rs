@@ -269,7 +269,13 @@ pub type DocumentAttributes = HashMap<String, JsonValue>;
 
 /// Attribute filter for search queries.
 /// Supports exact match, multi-value OR, and range queries.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone)]
+pub struct DateFilter {
+    pub after: Option<OffsetDateTime>,
+    pub before: Option<OffsetDateTime>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum AttributeFilter {
     /// Single value exact match

@@ -1,6 +1,7 @@
 use crate::models::{
     RecentSearchesResponse, SearchMode, SearchRequest, SearchResponse, SearchResult,
 };
+use crate::query_parser;
 use anyhow::Result;
 use redis::{AsyncCommands, Client as RedisClient};
 use shared::db::repositories::{DocumentRepository, EmbeddingRepository};
@@ -113,6 +114,41 @@ impl SearchEngine {
             return self.read_document_by_id(document_id, &request).await;
         }
 
+        // Parse query for structured operators (from:, in:, before:, etc.)
+        let parsed = query_parser::parse(&request.query);
+        let has_parsed_filters = !parsed.attribute_filters.is_empty()
+            || !parsed.source_types.is_empty()
+            || parsed.date_filter.is_some();
+
+        let mut request = request;
+        request.query = parsed.cleaned_query;
+
+        // Merge parsed attribute filters
+        if !parsed.attribute_filters.is_empty() {
+            let filters = request.attribute_filters.get_or_insert_with(HashMap::new);
+            for (key, filter) in parsed.attribute_filters {
+                filters.entry(key).or_insert(filter);
+            }
+        }
+
+        // Merge parsed source types
+        if !parsed.source_types.is_empty() {
+            let sources = request.source_types.get_or_insert_with(Vec::new);
+            for source in parsed.source_types {
+                if !sources.contains(&source) {
+                    sources.push(source);
+                }
+            }
+        }
+
+        // Attach date filter and person terms
+        if parsed.date_filter.is_some() {
+            request.date_filter = parsed.date_filter;
+        }
+        if !parsed.person_terms.is_empty() {
+            request.person_terms = Some(parsed.person_terms);
+        }
+
         // Generate cache key based on request parameters
         let cache_key = self.generate_cache_key(&request);
 
@@ -129,7 +165,7 @@ impl SearchEngine {
         let repo = DocumentRepository::new(self.db_pool.pool());
         let limit = request.limit();
 
-        if request.query.trim().is_empty() {
+        if request.query.trim().is_empty() && !has_parsed_filters {
             return Err(anyhow::anyhow!("Search query cannot be empty"));
         }
 
@@ -161,6 +197,7 @@ impl SearchEngine {
                         content_types,
                         attribute_filters,
                         request.user_email().map(|e| e.as_str()),
+                        request.date_filter.as_ref(),
                     )
                     .await
                     .unwrap_or_else(|e| {
@@ -236,6 +273,8 @@ impl SearchEngine {
                 request.offset(),
                 request.user_email().map(|e| e.as_str()),
                 request.document_id.as_deref(),
+                request.date_filter.as_ref(),
+                request.person_terms.as_deref(),
                 self.config.recency_boost_weight,
                 self.config.recency_half_life_days,
             )
