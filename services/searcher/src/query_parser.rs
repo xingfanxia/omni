@@ -1,0 +1,676 @@
+use regex::Regex;
+use serde_json::Value as JsonValue;
+use shared::models::{AttributeFilter, DateFilter};
+use shared::SourceType;
+use std::collections::HashMap;
+use time::OffsetDateTime;
+
+#[derive(Debug, Clone, Default)]
+pub struct ParsedQuery {
+    pub cleaned_query: String,
+    pub attribute_filters: HashMap<String, AttributeFilter>,
+    pub source_types: Vec<SourceType>,
+    pub date_filter: Option<DateFilter>,
+    pub person_terms: Vec<String>,
+}
+
+pub fn parse(query: &str) -> ParsedQuery {
+    let mut result = ParsedQuery::default();
+    let mut remaining = query.to_string();
+
+    // Phase 1: Extract explicit operators
+    remaining = extract_operators(&remaining, &mut result);
+
+    // Phase 2: Extract natural language date patterns
+    remaining = extract_natural_dates(&remaining, &mut result);
+
+    // Phase 3: Extract natural language patterns (from/by/in)
+    remaining = extract_natural_patterns(&remaining, &mut result);
+
+    // Phase 4: Check if first word is a known source alias
+    remaining = extract_source_prefix(&remaining, &mut result);
+
+    // Clean up extra whitespace
+    result.cleaned_query = remaining.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    result
+}
+
+fn extract_operators(query: &str, result: &mut ParsedQuery) -> String {
+    let re = Regex::new(r#"(?i)\b(from|by|in|type|channel|status|label|project|before|after|lang|assignee):("([^"]+)"|(\S+))"#).unwrap();
+
+    let mut remaining = query.to_string();
+
+    // Collect all matches first to avoid borrow issues
+    let matches: Vec<_> = re
+        .captures_iter(query)
+        .map(|cap| {
+            let full_match = cap.get(0).unwrap().as_str().to_string();
+            let operator = cap[1].to_lowercase();
+            let value = cap.get(3).or(cap.get(4)).unwrap().as_str().to_string();
+            (full_match, operator, value)
+        })
+        .collect();
+
+    for (full_match, operator, value) in matches {
+        remaining = remaining.replacen(&full_match, "", 1);
+
+        match operator.as_str() {
+            "from" => {
+                merge_attribute_filter(&mut result.attribute_filters, "sender", &value);
+                result.person_terms.push(value);
+            }
+            "by" => {
+                result.person_terms.push(value);
+            }
+            "in" => {
+                if let Some(source) = resolve_source_alias(&value) {
+                    result.source_types.push(source);
+                }
+            }
+            "type" => {
+                apply_type_filter(&value, &mut result.attribute_filters);
+            }
+            "channel" => {
+                merge_attribute_filter(&mut result.attribute_filters, "channel_name", &value);
+            }
+            "status" => {
+                merge_attribute_filter(&mut result.attribute_filters, "status", &value);
+            }
+            "label" => {
+                merge_attribute_filter(&mut result.attribute_filters, "labels", &value);
+            }
+            "project" => {
+                merge_attribute_filter(&mut result.attribute_filters, "project_key", &value);
+            }
+            "before" => {
+                if let Some(dt) = parse_date_value(&value, true) {
+                    result
+                        .date_filter
+                        .get_or_insert(DateFilter {
+                            after: None,
+                            before: None,
+                        })
+                        .before = Some(dt);
+                }
+            }
+            "after" => {
+                if let Some(dt) = parse_date_value(&value, false) {
+                    result
+                        .date_filter
+                        .get_or_insert(DateFilter {
+                            after: None,
+                            before: None,
+                        })
+                        .after = Some(dt);
+                }
+            }
+            "lang" => {
+                merge_attribute_filter(&mut result.attribute_filters, "language", &value);
+            }
+            "assignee" => {
+                merge_attribute_filter(&mut result.attribute_filters, "assignee", &value);
+            }
+            _ => {}
+        }
+    }
+
+    remaining
+}
+
+fn extract_natural_dates(query: &str, result: &mut ParsedQuery) -> String {
+    let mut remaining = query.to_string();
+    let now = OffsetDateTime::now_utc();
+
+    let patterns: &[(
+        &str,
+        Box<dyn Fn(OffsetDateTime) -> (Option<OffsetDateTime>, Option<OffsetDateTime>)>,
+    )] = &[
+        (
+            r"(?i)\blast\s+week\b",
+            Box::new(|now| {
+                let after = now - time::Duration::days(7);
+                (Some(after), None)
+            }),
+        ),
+        (
+            r"(?i)\blast\s+month\b",
+            Box::new(|now| {
+                let after = now - time::Duration::days(30);
+                (Some(after), None)
+            }),
+        ),
+        (
+            r"(?i)\bthis\s+week\b",
+            Box::new(|now| {
+                let weekday = now.weekday().number_days_from_monday();
+                let after = now - time::Duration::days(weekday as i64);
+                let after = after.replace_time(time::Time::MIDNIGHT);
+                (Some(after), None)
+            }),
+        ),
+        (
+            r"(?i)\byesterday\b",
+            Box::new(|now| {
+                let yesterday = now - time::Duration::days(1);
+                let start = yesterday.replace_time(time::Time::MIDNIGHT);
+                let end = start + time::Duration::days(1);
+                (Some(start), Some(end))
+            }),
+        ),
+        (
+            r"(?i)\btoday\b",
+            Box::new(|now| {
+                let start = now.replace_time(time::Time::MIDNIGHT);
+                (Some(start), None)
+            }),
+        ),
+    ];
+
+    for (pattern, compute) in patterns {
+        let re = Regex::new(pattern).unwrap();
+        if let Some(m) = re.find(&remaining) {
+            let (after, before) = compute(now);
+            let df = result.date_filter.get_or_insert(DateFilter {
+                after: None,
+                before: None,
+            });
+            if after.is_some() && df.after.is_none() {
+                df.after = after;
+            }
+            if before.is_some() && df.before.is_none() {
+                df.before = before;
+            }
+            remaining = format!("{}{}", &remaining[..m.start()], &remaining[m.end()..]);
+        }
+    }
+
+    remaining
+}
+
+fn extract_natural_patterns(query: &str, result: &mut ParsedQuery) -> String {
+    let mut remaining = query.to_string();
+
+    // "from <word>" or "emails from <word>"
+    let from_re = Regex::new(r"(?i)\b(?:emails?\s+)?from\s+(\w+)\b").unwrap();
+    if let Some(cap) = from_re.captures(&remaining) {
+        let value = cap[1].to_string();
+        // Don't treat "from" followed by a known non-person word
+        merge_attribute_filter(&mut result.attribute_filters, "sender", &value);
+        result.person_terms.push(value);
+        remaining = remaining.replacen(cap.get(0).unwrap().as_str(), "", 1);
+    }
+
+    // "by <word>"
+    let by_re = Regex::new(r"(?i)\b(?:docs?\s+)?by\s+(\w+)\b").unwrap();
+    if let Some(cap) = by_re.captures(&remaining) {
+        let value = cap[1].to_string();
+        result.person_terms.push(value);
+        remaining = remaining.replacen(cap.get(0).unwrap().as_str(), "", 1);
+    }
+
+    // "in <source>" — only match known source aliases
+    let in_re = Regex::new(r"(?i)\bin\s+(\w+)\b").unwrap();
+    if let Some(cap) = in_re.captures(&remaining) {
+        let value = cap[1].to_string();
+        if let Some(source) = resolve_source_alias(&value) {
+            result.source_types.push(source);
+            remaining = remaining.replacen(cap.get(0).unwrap().as_str(), "", 1);
+        }
+    }
+
+    remaining
+}
+
+fn extract_source_prefix(query: &str, result: &mut ParsedQuery) -> String {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return trimmed.to_string();
+    }
+    let first_word = trimmed.split_whitespace().next().unwrap_or("");
+    if let Some(source) = resolve_source_alias(first_word) {
+        // Only extract if there's more query text after the source word
+        let rest = trimmed[first_word.len()..].trim();
+        if !rest.is_empty() {
+            result.source_types.push(source);
+            return rest.to_string();
+        }
+    }
+    trimmed.to_string()
+}
+
+fn resolve_source_alias(alias: &str) -> Option<SourceType> {
+    match alias.to_lowercase().as_str() {
+        "drive" | "gdrive" | "google_drive" => Some(SourceType::GoogleDrive),
+        "gmail" | "email" | "mail" => Some(SourceType::Gmail),
+        "slack" => Some(SourceType::Slack),
+        "confluence" | "wiki" => Some(SourceType::Confluence),
+        "jira" => Some(SourceType::Jira),
+        "github" | "gh" => Some(SourceType::Github),
+        "notion" => Some(SourceType::Notion),
+        "onedrive" | "one_drive" => Some(SourceType::OneDrive),
+        "sharepoint" | "share_point" => Some(SourceType::SharePoint),
+        "outlook" => Some(SourceType::Outlook),
+        _ => None,
+    }
+}
+
+fn apply_type_filter(value: &str, filters: &mut HashMap<String, AttributeFilter>) {
+    match value.to_lowercase().as_str() {
+        "spreadsheet" | "sheet" => {
+            merge_attribute_filter(filters, "content_type", "spreadsheet");
+        }
+        "doc" | "document" => {
+            merge_attribute_filter(filters, "content_type", "document");
+        }
+        "slide" | "presentation" => {
+            merge_attribute_filter(filters, "content_type", "presentation");
+        }
+        "pdf" => {
+            merge_attribute_filter(filters, "file_extension", "pdf");
+        }
+        "issue" => {
+            merge_attribute_filter(filters, "content_type", "issue");
+        }
+        "pr" | "pull_request" => {
+            merge_attribute_filter(filters, "content_type", "pull_request");
+        }
+        "page" => {
+            merge_attribute_filter(filters, "content_type", "page");
+        }
+        _ => {
+            merge_attribute_filter(filters, "content_type", value);
+        }
+    }
+}
+
+fn merge_attribute_filter(filters: &mut HashMap<String, AttributeFilter>, key: &str, value: &str) {
+    let json_val = JsonValue::String(value.to_string());
+    match filters.get_mut(key) {
+        Some(AttributeFilter::Exact(existing)) => {
+            let existing_clone = existing.clone();
+            *filters.get_mut(key).unwrap() = AttributeFilter::AnyOf(vec![existing_clone, json_val]);
+        }
+        Some(AttributeFilter::AnyOf(ref mut values)) => {
+            values.push(json_val);
+        }
+        _ => {
+            filters.insert(key.to_string(), AttributeFilter::Exact(json_val));
+        }
+    }
+}
+
+fn parse_date_value(value: &str, is_before: bool) -> Option<OffsetDateTime> {
+    use time::format_description;
+
+    // Full date: 2024-06-01
+    if let Ok(date) = time::Date::parse(
+        value,
+        &format_description::parse("[year]-[month]-[day]").unwrap(),
+    ) {
+        let dt = date.with_time(if is_before {
+            time::Time::from_hms(23, 59, 59).unwrap()
+        } else {
+            time::Time::MIDNIGHT
+        });
+        return Some(dt.assume_utc());
+    }
+
+    // Year-month: 2024-06
+    if let Ok(date) = time::Date::parse(
+        &format!("{}-01", value),
+        &format_description::parse("[year]-[month]-[day]").unwrap(),
+    ) {
+        if is_before {
+            // Last day of month
+            let next_month = if date.month() == time::Month::December {
+                time::Date::from_calendar_date(date.year() + 1, time::Month::January, 1).unwrap()
+            } else {
+                date.replace_month(date.month().next())
+                    .unwrap()
+                    .replace_day(1)
+                    .unwrap()
+            };
+            let last_day = next_month - time::Duration::days(1);
+            return Some(
+                last_day
+                    .with_time(time::Time::from_hms(23, 59, 59).unwrap())
+                    .assume_utc(),
+            );
+        } else {
+            return Some(date.with_time(time::Time::MIDNIGHT).assume_utc());
+        }
+    }
+
+    // Year only: 2024
+    if value.len() == 4 {
+        if let Ok(year) = value.parse::<i32>() {
+            if is_before {
+                let date = time::Date::from_calendar_date(year, time::Month::December, 31).unwrap();
+                return Some(
+                    date.with_time(time::Time::from_hms(23, 59, 59).unwrap())
+                        .assume_utc(),
+                );
+            } else {
+                let date = time::Date::from_calendar_date(year, time::Month::January, 1).unwrap();
+                return Some(date.with_time(time::Time::MIDNIGHT).assume_utc());
+            }
+        }
+    }
+
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from_operator() {
+        let parsed = parse("from:sarah@co.com report");
+        assert_eq!(parsed.cleaned_query, "report");
+        assert!(parsed.attribute_filters.contains_key("sender"));
+        assert!(parsed.person_terms.contains(&"sarah@co.com".to_string()));
+    }
+
+    #[test]
+    fn test_by_operator() {
+        let parsed = parse("by:sarah docs");
+        assert_eq!(parsed.cleaned_query, "docs");
+        assert!(parsed.person_terms.contains(&"sarah".to_string()));
+    }
+
+    #[test]
+    fn test_in_operator() {
+        let parsed = parse("in:drive meeting notes");
+        assert_eq!(parsed.cleaned_query, "meeting notes");
+        assert_eq!(parsed.source_types, vec![SourceType::GoogleDrive]);
+    }
+
+    #[test]
+    fn test_in_operator_gmail_aliases() {
+        for alias in &["gmail", "email", "mail"] {
+            let parsed = parse(&format!("in:{} invoice", alias));
+            assert_eq!(parsed.source_types, vec![SourceType::Gmail]);
+        }
+    }
+
+    #[test]
+    fn test_type_operator() {
+        let parsed = parse("type:spreadsheet budget");
+        assert_eq!(parsed.cleaned_query, "budget");
+        assert_eq!(
+            parsed.attribute_filters.get("content_type"),
+            Some(&AttributeFilter::Exact(JsonValue::String(
+                "spreadsheet".to_string()
+            )))
+        );
+    }
+
+    #[test]
+    fn test_type_operator_pdf() {
+        let parsed = parse("type:pdf invoice");
+        assert!(parsed.attribute_filters.contains_key("file_extension"));
+    }
+
+    #[test]
+    fn test_channel_operator() {
+        let parsed = parse("channel:eng standup");
+        assert_eq!(parsed.cleaned_query, "standup");
+        assert!(parsed.attribute_filters.contains_key("channel_name"));
+    }
+
+    #[test]
+    fn test_status_operator() {
+        let parsed = parse("status:done task");
+        assert!(parsed.attribute_filters.contains_key("status"));
+    }
+
+    #[test]
+    fn test_before_after_operators() {
+        let parsed = parse("before:2024-06-01 after:2024-01-01 report");
+        assert_eq!(parsed.cleaned_query, "report");
+        let df = parsed.date_filter.unwrap();
+        assert!(df.before.is_some());
+        assert!(df.after.is_some());
+    }
+
+    #[test]
+    fn test_before_year_only() {
+        let parsed = parse("before:2024 report");
+        let df = parsed.date_filter.unwrap();
+        let before = df.before.unwrap();
+        assert_eq!(before.year(), 2024);
+        assert_eq!(before.month(), time::Month::December);
+        assert_eq!(before.day(), 31);
+    }
+
+    #[test]
+    fn test_after_year_only() {
+        let parsed = parse("after:2024 report");
+        let df = parsed.date_filter.unwrap();
+        let after = df.after.unwrap();
+        assert_eq!(after.year(), 2024);
+        assert_eq!(after.month(), time::Month::January);
+        assert_eq!(after.day(), 1);
+    }
+
+    #[test]
+    fn test_quoted_values() {
+        let parsed = parse(r#"from:"Sarah Jones" report"#);
+        assert_eq!(parsed.cleaned_query, "report");
+        assert!(parsed.person_terms.contains(&"Sarah Jones".to_string()));
+    }
+
+    #[test]
+    fn test_unknown_operator_passes_through() {
+        let parsed = parse("error:connection timeout");
+        assert_eq!(parsed.cleaned_query, "error:connection timeout");
+        assert!(parsed.attribute_filters.is_empty());
+    }
+
+    #[test]
+    fn test_multiple_labels_merge_to_anyof() {
+        let parsed = parse("label:bug label:urgent");
+        match parsed.attribute_filters.get("labels") {
+            Some(AttributeFilter::AnyOf(values)) => {
+                assert_eq!(values.len(), 2);
+            }
+            _ => panic!("Expected AnyOf filter for labels"),
+        }
+    }
+
+    #[test]
+    fn test_empty_query_after_extraction() {
+        let parsed = parse("from:sarah");
+        assert_eq!(parsed.cleaned_query, "");
+        assert!(!parsed.attribute_filters.is_empty());
+    }
+
+    #[test]
+    fn test_natural_language_from() {
+        let parsed = parse("emails from john");
+        assert_eq!(parsed.cleaned_query, "");
+        assert!(parsed.person_terms.contains(&"john".to_string()));
+        assert!(parsed.attribute_filters.contains_key("sender"));
+    }
+
+    #[test]
+    fn test_natural_language_by() {
+        let parsed = parse("docs by sarah");
+        assert_eq!(parsed.cleaned_query, "");
+        assert!(parsed.person_terms.contains(&"sarah".to_string()));
+    }
+
+    #[test]
+    fn test_natural_language_in_source() {
+        let parsed = parse("in slack standup");
+        assert_eq!(parsed.cleaned_query, "standup");
+        assert_eq!(parsed.source_types, vec![SourceType::Slack]);
+    }
+
+    #[test]
+    fn test_natural_in_only_known_sources() {
+        let parsed = parse("changes in production");
+        assert_eq!(parsed.cleaned_query, "changes in production");
+        assert!(parsed.source_types.is_empty());
+    }
+
+    #[test]
+    fn test_source_prefix() {
+        let parsed = parse("slack standup");
+        assert_eq!(parsed.cleaned_query, "standup");
+        assert_eq!(parsed.source_types, vec![SourceType::Slack]);
+    }
+
+    #[test]
+    fn test_source_prefix_alone_not_extracted() {
+        let parsed = parse("slack");
+        assert_eq!(parsed.cleaned_query, "slack");
+        assert!(parsed.source_types.is_empty());
+    }
+
+    #[test]
+    fn test_natural_date_last_week() {
+        let parsed = parse("budget last week");
+        assert_eq!(parsed.cleaned_query, "budget");
+        assert!(parsed.date_filter.is_some());
+        let df = parsed.date_filter.unwrap();
+        assert!(df.after.is_some());
+    }
+
+    #[test]
+    fn test_natural_date_last_month() {
+        let parsed = parse("report last month");
+        assert_eq!(parsed.cleaned_query, "report");
+        assert!(parsed.date_filter.unwrap().after.is_some());
+    }
+
+    #[test]
+    fn test_natural_date_yesterday() {
+        let parsed = parse("standup yesterday");
+        assert_eq!(parsed.cleaned_query, "standup");
+        let df = parsed.date_filter.unwrap();
+        assert!(df.after.is_some());
+        assert!(df.before.is_some());
+    }
+
+    #[test]
+    fn test_natural_date_today() {
+        let parsed = parse("emails today");
+        assert_eq!(parsed.cleaned_query, "emails");
+        assert!(parsed.date_filter.unwrap().after.is_some());
+    }
+
+    #[test]
+    fn test_combined_operators() {
+        let parsed = parse("in:slack from:sarah status:done standup");
+        assert_eq!(parsed.cleaned_query, "standup");
+        assert_eq!(parsed.source_types, vec![SourceType::Slack]);
+        assert!(parsed.attribute_filters.contains_key("sender"));
+        assert!(parsed.attribute_filters.contains_key("status"));
+    }
+
+    #[test]
+    fn test_source_alias_resolution() {
+        let cases = vec![
+            ("drive", SourceType::GoogleDrive),
+            ("gdrive", SourceType::GoogleDrive),
+            ("google_drive", SourceType::GoogleDrive),
+            ("gmail", SourceType::Gmail),
+            ("email", SourceType::Gmail),
+            ("mail", SourceType::Gmail),
+            ("slack", SourceType::Slack),
+            ("confluence", SourceType::Confluence),
+            ("wiki", SourceType::Confluence),
+            ("jira", SourceType::Jira),
+            ("github", SourceType::Github),
+            ("gh", SourceType::Github),
+            ("notion", SourceType::Notion),
+            ("onedrive", SourceType::OneDrive),
+            ("sharepoint", SourceType::SharePoint),
+            ("outlook", SourceType::Outlook),
+        ];
+
+        for (alias, expected) in cases {
+            assert_eq!(
+                resolve_source_alias(alias),
+                Some(expected),
+                "Failed for alias: {}",
+                alias
+            );
+        }
+    }
+
+    #[test]
+    fn test_unknown_source_alias() {
+        assert_eq!(resolve_source_alias("unknown"), None);
+    }
+
+    #[test]
+    fn test_lang_operator() {
+        let parsed = parse("lang:python error handling");
+        assert_eq!(parsed.cleaned_query, "error handling");
+        assert!(parsed.attribute_filters.contains_key("language"));
+    }
+
+    #[test]
+    fn test_assignee_operator() {
+        let parsed = parse("assignee:john bug fix");
+        assert_eq!(parsed.cleaned_query, "bug fix");
+        assert!(parsed.attribute_filters.contains_key("assignee"));
+    }
+
+    #[test]
+    fn test_project_operator() {
+        let parsed = parse("project:INFRA task");
+        assert_eq!(parsed.cleaned_query, "task");
+        assert!(parsed.attribute_filters.contains_key("project_key"));
+    }
+
+    #[test]
+    fn test_colon_in_regular_text() {
+        let parsed = parse("How to fix error: timeout");
+        assert_eq!(parsed.cleaned_query, "How to fix error: timeout");
+    }
+
+    #[test]
+    fn test_explicit_before_natural() {
+        // Explicit from: should be extracted, then natural language shouldn't double-extract
+        let parsed = parse("from:sarah report from john");
+        assert!(parsed.person_terms.contains(&"sarah".to_string()));
+        assert!(parsed.person_terms.contains(&"john".to_string()));
+    }
+
+    #[test]
+    fn test_case_insensitivity() {
+        let parsed = parse("FROM:sarah IN:Drive report");
+        assert!(parsed.attribute_filters.contains_key("sender"));
+        assert_eq!(parsed.source_types, vec![SourceType::GoogleDrive]);
+    }
+
+    #[test]
+    fn test_type_aliases() {
+        let cases = vec![
+            ("sheet", "content_type"),
+            ("doc", "content_type"),
+            ("slide", "content_type"),
+            ("presentation", "content_type"),
+            ("pdf", "file_extension"),
+            ("issue", "content_type"),
+            ("pr", "content_type"),
+            ("pull_request", "content_type"),
+            ("page", "content_type"),
+        ];
+
+        for (type_val, expected_key) in cases {
+            let parsed = parse(&format!("type:{} query", type_val));
+            assert!(
+                parsed.attribute_filters.contains_key(expected_key),
+                "type:{} should produce filter key '{}'",
+                type_val,
+                expected_key
+            );
+        }
+    }
+}

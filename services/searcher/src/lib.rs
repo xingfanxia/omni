@@ -1,5 +1,6 @@
 pub mod handlers;
 pub mod models;
+pub mod query_parser;
 pub mod search;
 pub mod suggested_questions;
 pub mod typeahead;

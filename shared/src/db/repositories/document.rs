@@ -1,11 +1,12 @@
 use crate::{
     db::error::DatabaseError,
-    models::{AttributeFilter, Document, Facet, FacetValue},
+    models::{AttributeFilter, DateFilter, Document, Facet, FacetValue},
     SourceType,
 };
 use serde_json::Value as JsonValue;
 use sqlx::{FromRow, PgPool};
 use std::collections::{HashMap, HashSet};
+use time;
 use tracing::debug;
 
 #[derive(FromRow)]
@@ -180,6 +181,7 @@ impl DocumentRepository {
         content_types: Option<&[String]>,
         attribute_filters: Option<&HashMap<String, AttributeFilter>>,
         user_email: Option<&str>,
+        date_filter: Option<&DateFilter>,
     ) {
         if !source_ids.is_empty() {
             filters.push(format!("source_id = ANY(${})", param_idx));
@@ -241,6 +243,27 @@ impl DocumentRepository {
             }
         }
 
+        if let Some(df) = date_filter {
+            if let Some(after) = &df.after {
+                let iso = after
+                    .format(&time::format_description::well_known::Rfc3339)
+                    .unwrap_or_default();
+                filters.push(format!(
+                    "metadata->>'updated_at' >= '{}'",
+                    iso.replace('\'', "''")
+                ));
+            }
+            if let Some(before) = &df.before {
+                let iso = before
+                    .format(&time::format_description::well_known::Rfc3339)
+                    .unwrap_or_default();
+                filters.push(format!(
+                    "metadata->>'updated_at' <= '{}'",
+                    iso.replace('\'', "''")
+                ));
+            }
+        }
+
         if let Some(email) = user_email {
             filters.push(self.generate_permission_filter(email));
         }
@@ -256,11 +279,28 @@ impl DocumentRepository {
         offset: i64,
         user_email: Option<&str>,
         document_id: Option<&str>,
+        date_filter: Option<&DateFilter>,
+        person_terms: Option<&[String]>,
         recency_boost_weight: f32,
         recency_half_life_days: f32,
     ) -> Result<Vec<SearchHit>, DatabaseError> {
         if source_ids.is_empty() {
             return Ok(vec![]);
+        }
+
+        // Filter-only search: no BM25 scoring, just apply filters sorted by recency
+        if query.trim().is_empty() {
+            return self
+                .filter_only_search(
+                    source_ids,
+                    content_types,
+                    attribute_filters,
+                    limit,
+                    offset,
+                    user_email,
+                    date_filter,
+                )
+                .await;
         }
 
         // We use term-centric ranking
@@ -295,6 +335,7 @@ impl DocumentRepository {
             content_types,
             attribute_filters,
             user_email,
+            date_filter,
         );
 
         if document_id.is_some() {
@@ -325,6 +366,21 @@ impl DocumentRepository {
                     WHERE content ||| {term_param}{common_where}\
                 ) t{i} GROUP BY id"
             ));
+        }
+
+        // Person-term boosting: search metadata.author and attributes.sender
+        if let Some(persons) = person_terms {
+            for person in persons {
+                let escaped = person.replace('\'', "''");
+                term_branches.push(format!(
+                    "SELECT id, 3.0 as score FROM documents \
+                    WHERE metadata @@@ 'author:{escaped}'{common_where}"
+                ));
+                term_branches.push(format!(
+                    "SELECT id, 3.0 as score FROM documents \
+                    WHERE attributes @@@ 'sender:{escaped}'{common_where}"
+                ));
+            }
         }
 
         // Phrase branches: best of title phrase vs content phrase (using $1 = full query)
@@ -456,6 +512,66 @@ impl DocumentRepository {
 
         let results = query_builder.fetch_all(&self.pool).await?;
 
+        Ok(results)
+    }
+
+    async fn filter_only_search(
+        &self,
+        source_ids: &[String],
+        content_types: Option<&[String]>,
+        attribute_filters: Option<&HashMap<String, AttributeFilter>>,
+        limit: i64,
+        offset: i64,
+        user_email: Option<&str>,
+        date_filter: Option<&DateFilter>,
+    ) -> Result<Vec<SearchHit>, DatabaseError> {
+        let mut param_idx = 1;
+        let mut filters = Vec::new();
+        self.build_common_filters(
+            &mut filters,
+            &mut param_idx,
+            source_ids,
+            content_types,
+            attribute_filters,
+            user_email,
+            date_filter,
+        );
+
+        let where_clause = if filters.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", filters.join(" AND "))
+        };
+
+        let query_str = format!(
+            r#"
+            SELECT id, 0.0::real as score, source_id, external_id, title, content_id, content_type,
+                   file_size, file_extension, url,
+                   metadata, permissions, attributes, created_at, updated_at, last_indexed_at,
+                   ARRAY[LEFT(content, 240)] as content_snippets
+            FROM documents
+            {where_clause}
+            ORDER BY updated_at DESC
+            LIMIT ${limit_idx} OFFSET ${offset_idx}
+            "#,
+            where_clause = where_clause,
+            limit_idx = param_idx,
+            offset_idx = param_idx + 1,
+        );
+
+        let mut query_builder = sqlx::query_as::<_, SearchHit>(&query_str);
+
+        query_builder = query_builder.bind(source_ids);
+
+        if let Some(ct) = content_types {
+            if !ct.is_empty() {
+                query_builder = query_builder.bind(ct);
+            }
+        }
+
+        query_builder = query_builder.bind(limit).bind(offset);
+
+        let results = query_builder.fetch_all(&self.pool).await?;
         Ok(results)
     }
 
@@ -667,6 +783,7 @@ impl DocumentRepository {
         content_types: Option<&[String]>,
         attribute_filters: Option<&HashMap<String, AttributeFilter>>,
         user_email: Option<&str>,
+        date_filter: Option<&DateFilter>,
     ) -> Result<Vec<Facet>, DatabaseError> {
         if source_ids.is_empty() {
             return Ok(vec![]);
@@ -682,6 +799,7 @@ impl DocumentRepository {
             content_types,
             attribute_filters,
             user_email,
+            date_filter,
         );
 
         let common_where = if filters.is_empty() {

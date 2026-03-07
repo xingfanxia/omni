@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use shared::{
-    models::{AttributeFilter, Document, Facet},
+    models::{AttributeFilter, DateFilter, Document, Facet},
     SourceType,
 };
 use std::collections::HashMap;
@@ -40,6 +40,10 @@ pub struct SearchRequest {
     // Both inclusive.
     pub document_content_start_line: Option<u32>,
     pub document_content_end_line: Option<u32>,
+    #[serde(skip)]
+    pub date_filter: Option<DateFilter>,
+    #[serde(skip)]
+    pub person_terms: Option<Vec<String>>,
 }
 
 impl SearchRequest {

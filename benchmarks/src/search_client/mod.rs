@@ -97,6 +97,8 @@ pub fn create_search_request(query: String, search_mode: SearchMode) -> SearchRe
         document_id: None,
         document_content_start_line: None,
         document_content_end_line: None,
+        date_filter: None,
+        person_terms: None,
     }
 }
 
