@@ -155,9 +155,14 @@ class ConnectorToolHandler:
         self._actions.clear()
         self._tools.clear()
 
+        seen_tools: set[str] = set()
         for action in actions:
             # Namespace: {source_type}__{action_name}
             tool_name = f"{action['source_type']}__{action['action_name']}"
+
+            if tool_name in seen_tools:
+                continue
+            seen_tools.add(tool_name)
 
             self._actions[tool_name] = ConnectorAction(
                 source_id=action["source_id"],

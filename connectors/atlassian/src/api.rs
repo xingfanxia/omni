@@ -97,12 +97,16 @@ async fn manifest() -> impl IntoResponse {
             name: "search_spaces".to_string(),
             description: "Search Confluence spaces or Jira projects".to_string(),
             parameters: json!({
-                "type": "object",
-                "properties": {
-                    "query": { "type": "string", "description": "Search query to filter by name or key" },
-                    "type": { "type": "string", "enum": ["confluence", "jira"], "description": "Whether to search Confluence spaces or Jira projects" }
+                "query": {
+                    "type": "string",
+                    "required": false,
+                    "description": "Search query to filter by name or key"
                 },
-                "required": ["type"]
+                "type": {
+                    "type": "string",
+                    "required": true,
+                    "description": "Whether to search Confluence spaces or Jira projects"
+                }
             }),
         }],
     };
