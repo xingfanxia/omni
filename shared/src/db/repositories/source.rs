@@ -31,6 +31,23 @@ impl SourceRepository {
         Ok(sources)
     }
 
+    pub async fn find_all_sources(&self) -> Result<Vec<Source>, DatabaseError> {
+        let sources = sqlx::query_as::<_, Source>(
+            r#"
+            SELECT id, name, source_type, config, is_active, is_deleted,
+                   user_filter_mode, user_whitelist, user_blacklist,
+                   connector_state, sync_interval_seconds, created_at, updated_at, created_by
+            FROM sources
+            WHERE is_deleted = false
+            ORDER BY created_at DESC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(sources)
+    }
+
     pub async fn find_active_sources(&self) -> Result<Vec<Source>, DatabaseError> {
         let sources = sqlx::query_as::<_, Source>(
             r#"

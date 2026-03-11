@@ -103,6 +103,25 @@ class ModelRecord:
 
 
 @dataclass
+class Source:
+    id: str
+    name: str
+    source_type: str
+    is_active: bool
+    is_deleted: bool
+
+    @classmethod
+    def from_row(cls, row: dict) -> "Source":
+        return cls(
+            id=row["id"],
+            name=row["name"],
+            source_type=row["source_type"],
+            is_active=row["is_active"],
+            is_deleted=row["is_deleted"],
+        )
+
+
+@dataclass
 class ChatMessage:
     id: str
     chat_id: str

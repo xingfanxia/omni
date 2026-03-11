@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 import httpx
 import redis.asyncio as aioredis
 
+from db.models import Source
 from tools.registry import ToolContext, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -37,10 +38,12 @@ class ConnectorToolHandler:
         connector_manager_url: str,
         user_id: str,
         redis_client: aioredis.Redis | None = None,
+        prefetched_sources: list[Source] | None = None,
     ) -> None:
         self._connector_manager_url = connector_manager_url.rstrip("/")
         self._user_id = user_id
         self._redis = redis_client
+        self._prefetched_sources = prefetched_sources
         self._actions: dict[str, ConnectorAction] = {}
         self._tools: list[dict] = []
         self._initialized = False
@@ -97,12 +100,15 @@ class ConnectorToolHandler:
                 connectors_resp.raise_for_status()
                 connectors = connectors_resp.json()
 
-                # Fetch active sources to map source_type -> source_id
-                sources_resp = await client.get(
-                    f"{self._connector_manager_url}/sources"
-                )
-                sources_resp.raise_for_status()
-                sources = sources_resp.json()
+                # Use pre-fetched sources if available, otherwise fetch from connector-manager
+                if self._prefetched_sources is not None:
+                    sources = [asdict(s) for s in self._prefetched_sources]
+                else:
+                    sources_resp = await client.get(
+                        f"{self._connector_manager_url}/sources"
+                    )
+                    sources_resp.raise_for_status()
+                    sources = sources_resp.json()
 
         except Exception as e:
             logger.error(f"Failed to fetch connector info: {e}")

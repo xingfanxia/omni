@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from dataclasses import dataclass
 from typing import cast
 
 import httpx
@@ -8,9 +9,9 @@ from fastapi import APIRouter, HTTPException, Path, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import ValidationError
 
-from db import ChatsRepository, MessagesRepository, SourcesRepository
+from db import ChatsRepository, MessagesRepository
 from db.documents import DocumentsRepository
-from db.models import Chat
+from db.models import Chat, Source
 from tools import (
     SearcherTool,
     ToolRegistry,
@@ -19,7 +20,7 @@ from tools import (
     ConnectorToolHandler,
     DocumentToolHandler,
 )
-from tools.search_handler import SEARCH_TOOLS
+from tools.connector_handler import ConnectorAction
 from tools.sandbox_handler import SandboxToolHandler
 from config import (
     DEFAULT_MAX_TOKENS,
@@ -133,19 +134,50 @@ def convert_citation_to_param(citation_delta: CitationsDelta) -> TextCitationPar
         raise ValueError(f"Unknown citation type: {citation.type}")
 
 
-async def _build_registry(
-    request: Request, chat: Chat
-) -> tuple[ToolRegistry, list[dict] | None]:
-    """Build a ToolRegistry with all available handlers.
+@dataclass
+class RegistryResult:
+    registry: ToolRegistry
+    connector_actions: list[ConnectorAction] | None
+    sources: list[Source] | None
 
-    Returns the registry and the raw connector actions list (for system prompt).
-    """
+
+async def _fetch_sources_from_connector_manager() -> list[Source] | None:
+    """Fetch all sources from the connector manager. Returns None on failure."""
+    if not CONNECTOR_MANAGER_URL:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{CONNECTOR_MANAGER_URL.rstrip('/')}/sources")
+            resp.raise_for_status()
+            return [Source.from_row(s) for s in resp.json()]
+    except Exception as e:
+        logger.warning(f"Failed to fetch sources from connector manager: {e}")
+        return None
+
+
+async def _build_registry(request: Request, chat: Chat) -> RegistryResult:
+    """Build a ToolRegistry with all available handlers."""
     registry = ToolRegistry()
 
-    # Always register search tools
-    registry.register(SearchToolHandler(searcher_tool=request.app.state.searcher_tool))
+    # Fetch sources from connector manager once, share with all handlers
+    sources = await _fetch_sources_from_connector_manager()
 
-    connector_actions: list[dict] | None = None
+    # Extract distinct connected source types for search tool definition
+    connected_source_types: list[str] = []
+    if sources is not None:
+        connected_source_types = sorted(
+            set(s.source_type for s in sources if s.source_type and not s.is_deleted)
+        )
+
+    # Always register search tools (with dynamic source types)
+    registry.register(
+        SearchToolHandler(
+            searcher_tool=request.app.state.searcher_tool,
+            connected_source_types=connected_source_types,
+        )
+    )
+
+    connector_actions: list[ConnectorAction] | None = None
 
     # Register connector tools if connector-manager is configured
     if CONNECTOR_MANAGER_URL:
@@ -153,21 +185,14 @@ async def _build_registry(
             connector_manager_url=CONNECTOR_MANAGER_URL,
             user_id=chat.user_id,
             redis_client=getattr(request.app.state, "redis_client", None),
+            prefetched_sources=sources,
         )
         await connector_handler._ensure_initialized()
         registry.register(connector_handler)
 
         # Collect action metadata for system prompt
         if connector_handler._actions:
-            connector_actions = [
-                {
-                    "source_type": a.source_type,
-                    "action_name": a.action_name,
-                    "description": a.description,
-                    "mode": a.mode,
-                }
-                for a in connector_handler._actions.values()
-            ]
+            connector_actions = list(connector_handler._actions.values())
 
     # Register document handler (unified read_document tool)
     content_storage = getattr(request.app.state, "content_storage", None)
@@ -185,7 +210,11 @@ async def _build_registry(
     if SANDBOX_URL:
         registry.register(SandboxToolHandler(sandbox_url=SANDBOX_URL))
 
-    return registry, connector_actions
+    return RegistryResult(
+        registry=registry,
+        connector_actions=connector_actions,
+        sources=sources,
+    )
 
 
 async def _save_pending_approval(
@@ -260,7 +289,8 @@ async def stream_chat(
         raise HTTPException(status_code=404, detail="No messages found for chat")
 
     # Build registry and discover connector actions
-    registry, connector_actions = await _build_registry(request, chat)
+    build_result = await _build_registry(request, chat)
+    registry = build_result.registry
     all_tools = registry.get_all_tools()
 
     # Check for pending approval resume flow
@@ -300,9 +330,12 @@ async def stream_chat(
         messages = await compactor.compact_conversation(chat_id, messages)
 
     # Build system prompt from active sources
-    sources_repo = SourcesRepository()
-    active_sources = await sources_repo.get_active_sources()
-    system_prompt = build_chat_system_prompt(active_sources, connector_actions)
+    active_sources = [
+        s for s in (build_result.sources or []) if s.is_active and not s.is_deleted
+    ]
+    system_prompt = build_chat_system_prompt(
+        active_sources, build_result.connector_actions
+    )
 
     # Stream AI response with tool calling
     async def stream_generator():

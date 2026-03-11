@@ -41,6 +41,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/sync/:id/cancel", post(handlers::cancel_sync))
         .route("/sync/:id/progress", get(handlers::get_sync_progress))
         .route("/schedules", get(handlers::list_schedules))
+        .route("/sources", get(handlers::list_sources))
         .route("/connectors", get(handlers::list_connectors))
         .route("/action", post(handlers::execute_action))
         .route("/actions", get(handlers::list_actions))

@@ -222,6 +222,17 @@ pub async fn list_schedules(
     Ok(Json(schedules))
 }
 
+pub async fn list_sources(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<shared::models::Source>>, ApiError> {
+    let source_repo = SourceRepository::new(state.db_pool.pool());
+    let sources = source_repo
+        .find_all_sources()
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+    Ok(Json(sources))
+}
+
 pub async fn list_connectors(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ConnectorInfo>>, ApiError> {

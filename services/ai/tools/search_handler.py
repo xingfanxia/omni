@@ -18,63 +18,76 @@ from tools.registry import ToolContext, ToolResult
 
 logger = logging.getLogger(__name__)
 
-SEARCH_TOOLS = [
-    {
-        "name": "search_documents",
-        "description": "Search enterprise documents using hybrid text and semantic search. Use this when you need to find information to answer user questions. Wherever possible, use the sources parameter to limit the search to specific apps.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "The search query to find relevant documents. Can search using keywords, or a natural language question to get semantic search results.",
-                },
-                "document_id": {
-                    "type": "string",
-                    "description": "Optional: restrict search to a specific document by ID. Use this to search within a single document for relevant sections.",
-                },
-                "sources": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Optional: specific source types to search (valid values: google_drive, slack, confluence, jira, web, slack, fireflies, hubspot.)",
-                },
-                "content_types": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Optional: file types to include (e.g., pdf, docx, txt)",
-                },
-                "attributes": {
-                    "type": "object",
-                    "description": (
-                        "Optional: filter results by document attributes. "
-                        "Common Jira attributes: status, priority, issue_type, assignee, reporter, labels, components, project_key. "
-                        "Common Confluence attributes: space_id, status. "
-                        'Values can be: a string for exact match (e.g., {"status": "Done"}), '
-                        'an array for OR match (e.g., {"priority": ["High", "Critical"]}), '
-                        'or an object with gte/lte keys for range queries (e.g., {"updated": {"gte": "2024-01-01"}}).'
-                    ),
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum number of results to return (default: 10)",
-                },
-            },
-            "required": ["query"],
-        },
-    },
-]
-
 _TOOL_NAMES = {"search_documents"}
+
+
+def _build_search_tools(connected_source_types: list[str]) -> list[dict]:
+    """Build the search tool definition with dynamic source types."""
+    if connected_source_types:
+        sources_desc = f"Optional: specific source types to search (valid values: {', '.join(sorted(connected_source_types))})"
+    else:
+        sources_desc = "Optional: specific source types to search."
+
+    return [
+        {
+            "name": "search_documents",
+            "description": "Search enterprise documents using hybrid text and semantic search. Use this when you need to find information to answer user questions. Wherever possible, use the sources parameter to limit the search to specific apps.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query to find relevant documents. Can search using keywords, or a natural language question to get semantic search results.",
+                    },
+                    "document_id": {
+                        "type": "string",
+                        "description": "Optional: restrict search to a specific document by ID. Use this to search within a single document for relevant sections.",
+                    },
+                    "sources": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": sources_desc,
+                    },
+                    "content_types": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional: file types to include (e.g., pdf, docx, txt)",
+                    },
+                    "attributes": {
+                        "type": "object",
+                        "description": (
+                            "Optional: filter results by document attributes. "
+                            "Common Jira attributes: status, priority, issue_type, assignee, reporter, labels, components, project_key. "
+                            "Common Confluence attributes: space_id, status. "
+                            'Values can be: a string for exact match (e.g., {"status": "Done"}), '
+                            'an array for OR match (e.g., {"priority": ["High", "Critical"]}), '
+                            'or an object with gte/lte keys for range queries (e.g., {"updated": {"gte": "2024-01-01"}}).'
+                        ),
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of results to return (default: 10)",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    ]
 
 
 class SearchToolHandler:
     """Wraps existing search logic as a ToolHandler."""
 
-    def __init__(self, searcher_tool: SearcherTool) -> None:
+    def __init__(
+        self,
+        searcher_tool: SearcherTool,
+        connected_source_types: list[str] | None = None,
+    ) -> None:
         self._searcher = searcher_tool
+        self._tools = _build_search_tools(connected_source_types or [])
 
     def get_tools(self) -> list[dict]:
-        return SEARCH_TOOLS
+        return self._tools
 
     def can_handle(self, tool_name: str) -> bool:
         return tool_name in _TOOL_NAMES

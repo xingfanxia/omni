@@ -10,8 +10,8 @@ SOURCE_DISPLAY_NAMES = {
     "local_files": "Files",
     "github": "GitHub",
     "notion": "Notion",
-    "onedrive": "OneDrive",
-    "sharepoint": "SharePoint",
+    "one_drive": "OneDrive",
+    "share_point": "SharePoint",
     "outlook": "Outlook",
     "outlook_calendar": "Outlook Calendar",
 }
@@ -61,13 +61,19 @@ Connected apps: {connected_apps}
 
 
 def build_chat_system_prompt(
-    sources: list[dict],
-    connector_actions: list[dict] | None = None,
+    sources: list,
+    connector_actions: list | None = None,
 ) -> str:
+    """Build system prompt from active sources and connector actions.
+
+    Args:
+        sources: list of Source dataclass instances (from db.models)
+        connector_actions: list of ConnectorAction dataclass instances (from tools.connector_handler)
+    """
     seen = set()
     display_names = []
     for source in sources:
-        source_type = source["source_type"]
+        source_type = source.source_type
         if source_type not in seen:
             seen.add(source_type)
             name = SOURCE_DISPLAY_NAMES.get(source_type, source_type)
@@ -80,12 +86,14 @@ def build_chat_system_prompt(
         actions_by_source: dict[str, list[str]] = {}
         for action in connector_actions:
             source_display = SOURCE_DISPLAY_NAMES.get(
-                action.get("source_type", ""), action.get("source_type", "")
+                action.source_type, action.source_type
             )
             mode_label = (
-                "read" if action.get("mode") == "read" else "write — requires approval"
+                "read" if action.mode == "read" else "write — requires approval"
             )
-            action_desc = f"  - {action['action_name']}: {action.get('description', '')} [{mode_label}]"
+            action_desc = (
+                f"  - {action.action_name}: {action.description} [{mode_label}]"
+            )
             actions_by_source.setdefault(source_display, []).append(action_desc)
 
         actions_lines = ["\nAvailable actions:"]
