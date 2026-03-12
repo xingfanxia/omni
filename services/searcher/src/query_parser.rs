@@ -10,6 +10,7 @@ pub struct ParsedQuery {
     pub cleaned_query: String,
     pub attribute_filters: HashMap<String, AttributeFilter>,
     pub source_types: Vec<SourceType>,
+    pub boosted_source_types: Vec<SourceType>,
     pub content_types: Vec<String>,
     pub date_filter: Option<DateFilter>,
     pub person_terms: Vec<String>,
@@ -29,7 +30,7 @@ pub fn parse(query: &str) -> ParsedQuery {
     remaining = extract_natural_patterns(&remaining, &mut result);
 
     // Phase 4: Check if first word is a known source alias
-    remaining = extract_source_prefix(&remaining, &mut result);
+    remaining = extract_source_word(&remaining, &mut result);
 
     // Clean up extra whitespace
     result.cleaned_query = remaining.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -223,18 +224,25 @@ fn extract_natural_patterns(query: &str, result: &mut ParsedQuery) -> String {
     remaining
 }
 
-fn extract_source_prefix(query: &str, result: &mut ParsedQuery) -> String {
+fn extract_source_word(query: &str, result: &mut ParsedQuery) -> String {
     let trimmed = query.trim();
     if trimmed.is_empty() {
         return trimmed.to_string();
     }
-    let first_word = trimmed.split_whitespace().next().unwrap_or("");
-    if let Some(source) = resolve_source_alias(first_word) {
-        // Only extract if there's more query text after the source word
-        let rest = trimmed[first_word.len()..].trim();
-        if !rest.is_empty() {
-            result.source_types.push(source);
-            return rest.to_string();
+    let words: Vec<&str> = trimmed.split_whitespace().collect();
+    if words.len() < 2 {
+        return trimmed.to_string();
+    }
+    for (i, word) in words.iter().enumerate() {
+        if let Some(source) = resolve_source_alias(word) {
+            result.boosted_source_types.push(source);
+            let remaining: Vec<&str> = words
+                .iter()
+                .enumerate()
+                .filter(|(j, _)| *j != i)
+                .map(|(_, w)| *w)
+                .collect();
+            return remaining.join(" ");
         }
     }
     trimmed.to_string()
@@ -520,14 +528,15 @@ mod tests {
     }
 
     #[test]
-    fn test_source_prefix() {
-        let parsed = parse("slack standup");
+    fn test_source_word_extraction() {
+        let parsed = parse("standup slack");
         assert_eq!(parsed.cleaned_query, "standup");
-        assert_eq!(parsed.source_types, vec![SourceType::Slack]);
+        assert!(parsed.source_types.is_empty());
+        assert_eq!(parsed.boosted_source_types, vec![SourceType::Slack]);
     }
 
     #[test]
-    fn test_source_prefix_alone_not_extracted() {
+    fn test_source_word_alone_not_extracted() {
         let parsed = parse("slack");
         assert_eq!(parsed.cleaned_query, "slack");
         assert!(parsed.source_types.is_empty());

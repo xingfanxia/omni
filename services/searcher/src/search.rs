@@ -225,7 +225,24 @@ impl SearchEngine {
         };
 
         let (search_result, facets) = tokio::join!(search_future, facets_future);
-        let results = search_result?;
+        let mut results = search_result?;
+
+        // Apply source boost for implicit source words (e.g. "standup slack")
+        if !parsed.boosted_source_types.is_empty() {
+            let boosted_source_ids = repo
+                .fetch_active_source_ids(Some(&parsed.boosted_source_types))
+                .await
+                .unwrap_or_default();
+            if !boosted_source_ids.is_empty() {
+                const SOURCE_BOOST_MULTIPLIER: f32 = 1.5;
+                for result in &mut results {
+                    if boosted_source_ids.contains(&result.document.source_id) {
+                        result.score *= SOURCE_BOOST_MULTIPLIER;
+                    }
+                }
+                results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(Ordering::Equal));
+            }
+        }
         // TODO: this will need to change once we introduce more facets beyond just source_type
         let total_count = facets
             .iter()
@@ -405,8 +422,7 @@ impl SearchEngine {
                 }
 
                 // Sort by similarity score (highest first)
-                chunk_highlights
-                    .sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+                chunk_highlights.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(Ordering::Equal));
 
                 // Extract just the snippets in sorted order, limited to top 5
                 let all_highlights: Vec<String> = chunk_highlights
@@ -427,11 +443,7 @@ impl SearchEngine {
         }
 
         // Sort results by score in descending order
-        results.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(Ordering::Equal));
 
         info!(
             "Semantic search completed in {}ms",
@@ -775,11 +787,7 @@ impl SearchEngine {
         }
 
         // Sort results by score in descending order
-        results.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(Ordering::Equal));
 
         info!(
             "Enhanced semantic search for RAG completed in {}ms",
@@ -1028,11 +1036,7 @@ impl SearchEngine {
         }
 
         // Sort by score and take top results
-        combined_results.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        combined_results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(Ordering::Equal));
         combined_results.truncate(10);
 
         info!(
