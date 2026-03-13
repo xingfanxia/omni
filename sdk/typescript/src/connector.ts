@@ -16,12 +16,17 @@ export abstract class Connector {
   abstract readonly name: string;
   abstract readonly version: string;
 
+  get displayName(): string {
+    return this.name;
+  }
+
   readonly syncModes: string[] = ['full'];
   readonly actions: ActionDefinition[] = [];
 
   getManifest(): ConnectorManifest {
     return {
       name: this.name,
+      display_name: this.displayName,
       version: this.version,
       sync_modes: this.syncModes,
       actions: this.actions,

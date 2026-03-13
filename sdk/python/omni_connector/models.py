@@ -99,6 +99,7 @@ class SearchOperator(BaseModel):
 
 class ConnectorManifest(BaseModel):
     name: str
+    display_name: str
     version: str
     sync_modes: list[str]
     actions: list[ActionDefinition] = Field(default_factory=list)

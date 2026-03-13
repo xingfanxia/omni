@@ -27,6 +27,11 @@ class Connector(ABC):
         pass
 
     @property
+    def display_name(self) -> str:
+        """Human-readable display name. Override to customize."""
+        return self.name
+
+    @property
     def sync_modes(self) -> list[str]:
         """Supported sync modes. Override to customize."""
         return ["full"]
@@ -45,6 +50,7 @@ class Connector(ABC):
         """Return connector manifest."""
         return ConnectorManifest(
             name=self.name,
+            display_name=self.display_name,
             version=self.version,
             sync_modes=self.sync_modes,
             actions=self.actions,

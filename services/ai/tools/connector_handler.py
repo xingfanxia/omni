@@ -130,6 +130,7 @@ class ConnectorToolHandler:
             if not manifest or not connector.get("healthy"):
                 continue
 
+            display_name = manifest.get("display_name", source_type)
             for op in manifest.get("search_operators", []):
                 search_operators.append(
                     {
@@ -137,6 +138,7 @@ class ConnectorToolHandler:
                         "attribute_key": op.get("attribute_key", ""),
                         "value_type": op.get("value_type", "text"),
                         "source_type": source_type,
+                        "display_name": display_name,
                     }
                 )
 

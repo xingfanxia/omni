@@ -55,6 +55,7 @@ async fn health() -> impl IntoResponse {
 async fn manifest() -> impl IntoResponse {
     let manifest = ConnectorManifest {
         name: "slack".to_string(),
+        display_name: "Slack".to_string(),
         version: "1.0.0".to_string(),
         sync_modes: vec!["full".to_string(), "incremental".to_string()],
         actions: vec![],

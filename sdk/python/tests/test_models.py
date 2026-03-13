@@ -119,6 +119,7 @@ def test_connector_event_deleted_to_dict():
 def test_connector_manifest():
     manifest = ConnectorManifest(
         name="my-connector",
+        display_name="My Connector",
         version="1.0.0",
         sync_modes=["full", "incremental"],
         actions=[],
@@ -126,6 +127,7 @@ def test_connector_manifest():
 
     data = manifest.model_dump()
     assert data["name"] == "my-connector"
+    assert data["display_name"] == "My Connector"
     assert data["version"] == "1.0.0"
     assert data["sync_modes"] == ["full", "incremental"]
 

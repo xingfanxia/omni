@@ -95,6 +95,7 @@ async fn health() -> impl IntoResponse {
 async fn manifest() -> impl IntoResponse {
     Json(ConnectorManifest {
         name: "imap".to_string(),
+        display_name: "IMAP".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         sync_modes: vec!["full".to_string(), "incremental".to_string()],
         actions: vec![],

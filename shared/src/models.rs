@@ -320,6 +320,7 @@ fn default_action_mode() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectorManifest {
     pub name: String,
+    pub display_name: String,
     pub version: String,
     pub sync_modes: Vec<String>,
     #[serde(default)]

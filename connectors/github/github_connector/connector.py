@@ -29,6 +29,10 @@ class GitHubConnector(Connector):
         return "github"
 
     @property
+    def display_name(self) -> str:
+        return "GitHub"
+
+    @property
     def version(self) -> str:
         return "1.0.0"
 

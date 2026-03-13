@@ -235,12 +235,14 @@ def test_search_tool_includes_connector_operators():
             "attribute_key": "status",
             "value_type": "text",
             "source_type": "jira",
+            "display_name": "Jira",
         },
         {
             "operator": "channel",
             "attribute_key": "channel_name",
             "value_type": "text",
             "source_type": "slack",
+            "display_name": "Slack",
         },
     ]
     tools = _build_search_tools(operators)

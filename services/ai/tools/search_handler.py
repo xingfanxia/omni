@@ -23,24 +23,6 @@ _TOOL_NAMES = {"search_documents"}
 # Operators already documented as universal — exclude from connector-specific lists
 _UNIVERSAL_OPERATORS = {"by", "in", "from", "type", "before", "after"}
 
-SOURCE_DISPLAY_NAMES = {
-    "google_drive": "Google Drive",
-    "gmail": "Gmail",
-    "confluence": "Confluence",
-    "jira": "Jira",
-    "slack": "Slack",
-    "hubspot": "HubSpot",
-    "fireflies": "Fireflies",
-    "web": "Web",
-    "local_files": "Files",
-    "github": "GitHub",
-    "notion": "Notion",
-    "one_drive": "OneDrive",
-    "share_point": "SharePoint",
-    "outlook": "Outlook",
-    "outlook_calendar": "Outlook Calendar",
-}
-
 
 def _build_query_description(
     search_operators: list[dict],
@@ -63,8 +45,7 @@ def _build_query_description(
     for op in search_operators:
         if op["operator"] in _UNIVERSAL_OPERATORS:
             continue
-        source_type = op.get("source_type", "")
-        display_name = SOURCE_DISPLAY_NAMES.get(source_type, source_type)
+        display_name = op.get("display_name", op.get("source_type", ""))
         ops_by_source.setdefault(display_name, []).append(f"{op['operator']}:<value>")
 
     if ops_by_source:

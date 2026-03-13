@@ -36,6 +36,10 @@ class MicrosoftConnector(Connector):
         return "microsoft"
 
     @property
+    def display_name(self) -> str:
+        return "Microsoft"
+
+    @property
     def version(self) -> str:
         return "1.0.0"
 

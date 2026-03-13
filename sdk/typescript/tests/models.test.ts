@@ -100,6 +100,7 @@ describe('ConnectorManifestSchema', () => {
   it('validates a manifest', () => {
     const manifest = {
       name: 'my-connector',
+      display_name: 'My Connector',
       version: '1.0.0',
       sync_modes: ['full', 'incremental'],
       actions: [],
@@ -109,6 +110,7 @@ describe('ConnectorManifestSchema', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.name).toBe('my-connector');
+      expect(result.data.display_name).toBe('My Connector');
       expect(result.data.sync_modes).toEqual(['full', 'incremental']);
     }
   });

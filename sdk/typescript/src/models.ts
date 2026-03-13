@@ -79,6 +79,7 @@ export type SearchOperator = z.infer<typeof SearchOperatorSchema>;
 
 export const ConnectorManifestSchema = z.object({
   name: z.string(),
+  display_name: z.string(),
   version: z.string(),
   sync_modes: z.array(z.string()),
   actions: z.array(ActionDefinitionSchema).default([]),
