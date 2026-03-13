@@ -125,6 +125,7 @@ impl SearchEngine {
         // Parse query for structured operators (from:, in:, before:, etc.)
         let parsed =
             query_parser::parse(&request.query, &self.people_cache, &self.operator_registry).await;
+        info!("Parsed query: {:?}", parsed);
         let has_parsed_filters = !parsed.attribute_filters.is_empty()
             || !parsed.source_types.is_empty()
             || !parsed.boosted_source_types.is_empty()
@@ -178,7 +179,7 @@ impl SearchEngine {
         if let Ok(mut conn) = self.redis_client.get_multiplexed_async_connection().await {
             if let Ok(cached_response) = conn.get::<_, String>(&cache_key).await {
                 if let Ok(response) = serde_json::from_str::<SearchResponse>(&cached_response) {
-                    info!("Cache hit for query: '{}'", request.query);
+                    info!("Cache hit for request: {:?}", request);
                     return Ok(response);
                 }
             }
@@ -980,6 +981,21 @@ impl SearchEngine {
 
         if let Some(user_email) = &request.user_email {
             user_email.hash(&mut hasher);
+        }
+
+        if let Some(date_filter) = &request.date_filter {
+            if let Some(after) = &date_filter.after {
+                after.unix_timestamp().hash(&mut hasher);
+            }
+            if let Some(before) = &date_filter.before {
+                before.unix_timestamp().hash(&mut hasher);
+            }
+        }
+
+        if let Some(person_filters) = &request.person_filters {
+            for person in person_filters {
+                person.hash(&mut hasher);
+            }
         }
 
         format!("search:{:x}", hasher.finish())
