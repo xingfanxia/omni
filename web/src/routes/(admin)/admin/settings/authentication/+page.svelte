@@ -9,6 +9,7 @@
     import { toast } from 'svelte-sonner'
     import type { PageData } from './$types'
     import googleIcon from '$lib/images/icons/google.svg'
+    import oktaIcon from '$lib/images/icons/okta.svg'
 
     let { data }: { data: PageData } = $props()
 
@@ -17,6 +18,13 @@
     let clientSecret = $state('')
     let isSubmitting = $state(false)
     let showForm = $state(false)
+
+    let oktaEnabled = $state(data.okta.enabled)
+    let oktaDomain = $state(data.okta.oktaDomain)
+    let oktaClientId = $state(data.okta.clientId)
+    let oktaClientSecret = $state('')
+    let oktaIsSubmitting = $state(false)
+    let oktaShowForm = $state(false)
 
     function handleToggle() {
         if (enabled) {
@@ -186,6 +194,165 @@
                     {/if}
                 </Card.Content>
             </Card.Root>
+
+            {#if data.oktaSsoAvailable}
+                <Card.Root>
+                    <Card.Header class="flex flex-row items-start justify-between space-y-0 pb-2">
+                        <div class="flex items-start gap-3">
+                            <img src={oktaIcon} alt="Okta" class="h-8 w-8" />
+                            <div>
+                                <Card.Title class="text-lg">Okta</Card.Title>
+                                {#if data.okta.enabled}
+                                    <div class="flex items-center gap-1.5 text-sm text-green-600">
+                                        <CheckCircle2 class="h-3.5 w-3.5" />
+                                        Enabled
+                                    </div>
+                                {:else}
+                                    <Card.Description>Sign in with Okta SSO</Card.Description>
+                                {/if}
+                            </div>
+                        </div>
+                    </Card.Header>
+                    <Card.Content>
+                        {#if data.okta.enabled && !oktaShowForm}
+                            <div class="flex flex-wrap gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    class="cursor-pointer gap-1"
+                                    onclick={() => (oktaShowForm = true)}>
+                                    <Pencil class="h-3 w-3" />
+                                    Edit
+                                </Button>
+                                <form
+                                    method="POST"
+                                    action="?/updateOkta"
+                                    use:enhance={() => {
+                                        oktaIsSubmitting = true
+                                        return async ({ result, update }) => {
+                                            oktaIsSubmitting = false
+                                            await update()
+                                            if (result.type === 'success') {
+                                                toast.success(
+                                                    result.data?.message || 'Okta SSO disabled',
+                                                )
+                                                oktaEnabled = false
+                                            } else if (result.type === 'failure') {
+                                                toast.error(
+                                                    result.data?.error || 'Something went wrong',
+                                                )
+                                            }
+                                        }
+                                    }}>
+                                    <input type="hidden" name="enabled" value="false" />
+                                    <input type="hidden" name="oktaDomain" value="" />
+                                    <input type="hidden" name="clientId" value="" />
+                                    <input type="hidden" name="clientSecret" value="" />
+                                    <Button
+                                        type="submit"
+                                        variant="outline"
+                                        size="sm"
+                                        disabled={oktaIsSubmitting}
+                                        class="cursor-pointer gap-1 text-red-600 hover:text-red-700">
+                                        {oktaIsSubmitting ? 'Disabling...' : 'Disable'}
+                                    </Button>
+                                </form>
+                            </div>
+                        {:else if oktaShowForm || !data.okta.enabled}
+                            <form
+                                method="POST"
+                                action="?/updateOkta"
+                                use:enhance={() => {
+                                    oktaIsSubmitting = true
+                                    return async ({ result, update }) => {
+                                        oktaIsSubmitting = false
+                                        await update()
+                                        if (result.type === 'success') {
+                                            toast.success(result.data?.message || 'Settings saved')
+                                            oktaClientSecret = ''
+                                            oktaShowForm = false
+                                        } else if (result.type === 'failure') {
+                                            toast.error(
+                                                result.data?.error || 'Something went wrong',
+                                            )
+                                        }
+                                    }
+                                }}
+                                class="space-y-4">
+                                <input type="hidden" name="enabled" value="true" />
+
+                                <Alert.Root>
+                                    <Info class="h-4 w-4" />
+                                    <Alert.Description>
+                                        Create an Okta application (Web, OIDC), and paste the
+                                        credentials here. Set the sign-in redirect URI to
+                                        <code class="bg-muted rounded px-1 text-sm"
+                                            >{'{app_url}'}/auth/okta/callback</code>
+                                    </Alert.Description>
+                                </Alert.Root>
+
+                                <div class="space-y-2">
+                                    <Label for="oktaDomain">Okta Domain *</Label>
+                                    <Input
+                                        id="oktaDomain"
+                                        name="oktaDomain"
+                                        bind:value={oktaDomain}
+                                        placeholder="mycompany.okta.com"
+                                        required />
+                                </div>
+
+                                <div class="space-y-2">
+                                    <Label for="oktaClientId">Client ID *</Label>
+                                    <Input
+                                        id="oktaClientId"
+                                        name="clientId"
+                                        bind:value={oktaClientId}
+                                        placeholder="0oa1b2c3d4e5f6g7h8i9"
+                                        required />
+                                </div>
+
+                                <div class="space-y-2">
+                                    <Label for="oktaClientSecret">
+                                        Client Secret {data.okta.hasClientSecret ? '' : '*'}
+                                    </Label>
+                                    <Input
+                                        id="oktaClientSecret"
+                                        name="clientSecret"
+                                        type="password"
+                                        bind:value={oktaClientSecret}
+                                        placeholder={data.okta.hasClientSecret
+                                            ? 'Leave empty to keep current secret'
+                                            : 'Enter client secret'}
+                                        required={!data.okta.hasClientSecret} />
+                                </div>
+
+                                <div class="flex gap-2">
+                                    {#if data.okta.enabled}
+                                        <Button
+                                            variant="outline"
+                                            type="button"
+                                            class="cursor-pointer"
+                                            onclick={() => (oktaShowForm = false)}>
+                                            Cancel
+                                        </Button>
+                                    {/if}
+                                    <Button
+                                        type="submit"
+                                        disabled={oktaIsSubmitting}
+                                        class="cursor-pointer">
+                                        {#if oktaIsSubmitting}
+                                            <Loader2 class="mr-2 h-4 w-4 animate-spin" />
+                                            Saving...
+                                        {:else}
+                                            {data.okta.enabled ? 'Update' : 'Enable'}
+                                        {/if}
+                                    </Button>
+                                </div>
+                            </form>
+                        {/if}
+                    </Card.Content>
+                </Card.Root>
+            {/if}
         </div>
     </div>
 </div>

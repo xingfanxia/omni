@@ -9,7 +9,8 @@ import { sha256 } from '@oslojs/crypto/sha2'
 import { encodeHexLowerCase } from '@oslojs/encoding'
 import { userRepository } from '$lib/server/db/users'
 import { SystemFlags } from '$lib/server/system-flags'
-import { getGoogleAuthConfig } from '$lib/server/db/auth-providers'
+import { getGoogleAuthConfig, getOktaAuthConfig } from '$lib/server/db/auth-providers'
+import { loadOktaOAuthService } from '$lib/server/oauth/okta'
 import { verify } from '@node-rs/argon2'
 import type { Actions, PageServerLoad } from './$types.js'
 
@@ -28,6 +29,11 @@ export const load: PageServerLoad = async ({ cookies, locals, url }) => {
     // Check if Google Auth is enabled
     const googleConfig = await getGoogleAuthConfig()
     const googleAuthEnabled = googleConfig?.enabled ?? false
+
+    // Check if Okta SSO is available and enabled
+    const oktaConfig = await getOktaAuthConfig()
+    const oktaAuthEnabled =
+        (oktaConfig?.enabled && (await loadOktaOAuthService()) !== null) ?? false
 
     // Handle OAuth error messages from URL parameters
     const error = url.searchParams.get('error')
@@ -63,6 +69,10 @@ export const load: PageServerLoad = async ({ cookies, locals, url }) => {
             case 'invalid_oauth_response':
                 errorMessage = 'Invalid OAuth response from Google.'
                 break
+            case 'okta_not_available':
+                errorMessage =
+                    'Okta SSO requires the enterprise package. Please contact your administrator.'
+                break
             case 'authentication_required':
                 errorMessage = 'Authentication required.'
                 break
@@ -74,6 +84,7 @@ export const load: PageServerLoad = async ({ cookies, locals, url }) => {
         return {
             error: errorMessage,
             googleAuthEnabled,
+            oktaAuthEnabled,
         }
     }
 
@@ -85,6 +96,7 @@ export const load: PageServerLoad = async ({ cookies, locals, url }) => {
         return {
             success: 'Welcome to Omni! Your account has been created successfully.',
             googleAuthEnabled,
+            oktaAuthEnabled,
         }
     }
 
@@ -92,10 +104,11 @@ export const load: PageServerLoad = async ({ cookies, locals, url }) => {
         return {
             success: `Your ${linked} account has been successfully linked.`,
             googleAuthEnabled,
+            oktaAuthEnabled,
         }
     }
 
-    return { googleAuthEnabled }
+    return { googleAuthEnabled, oktaAuthEnabled }
 }
 
 export const actions: Actions = {

@@ -33,6 +33,23 @@ export async function getGoogleAuthConfig(): Promise<{
     }
 }
 
+export async function getOktaAuthConfig(): Promise<{
+    enabled: boolean
+    oktaDomain: string
+    clientId: string
+    clientSecret: string
+} | null> {
+    const row = await getAuthProvider('okta')
+    if (!row) return null
+    const config = row.config as { oktaDomain: string; clientId: string; clientSecret: string }
+    return {
+        enabled: row.enabled,
+        oktaDomain: config.oktaDomain || '',
+        clientId: config.clientId || '',
+        clientSecret: config.clientSecret || '',
+    }
+}
+
 export async function updateAuthProvider(
     provider: string,
     enabled: boolean,

@@ -12,6 +12,7 @@
     } from '$lib/components/ui/card/index.js'
     import type { ActionData } from './$types.js'
     import googleIcon from '$lib/images/icons/google.svg'
+    import oktaIcon from '$lib/images/icons/okta.svg'
 
     export let form: ActionData
     export let data: any
@@ -45,11 +46,25 @@
             </div>
         {/if}
 
-        {#if data?.googleAuthEnabled}
-            <Button variant="outline" class="w-full cursor-pointer gap-2" href="/auth/google">
-                <img src={googleIcon} alt="Google" class="h-4 w-4" />
-                Sign in with Google
-            </Button>
+        {#if data?.googleAuthEnabled || data?.oktaAuthEnabled}
+            <div class="flex flex-col gap-2">
+                {#if data?.googleAuthEnabled}
+                    <Button
+                        variant="outline"
+                        class="w-full cursor-pointer gap-2"
+                        href="/auth/google">
+                        <img src={googleIcon} alt="Google" class="h-4 w-4" />
+                        Sign in with Google
+                    </Button>
+                {/if}
+
+                {#if data?.oktaAuthEnabled}
+                    <Button variant="outline" class="w-full cursor-pointer gap-2" href="/auth/okta">
+                        <img src={oktaIcon} alt="Okta" class="h-4 w-4" />
+                        Sign in with Okta
+                    </Button>
+                {/if}
+            </div>
 
             <div class="relative my-6">
                 <div class="absolute inset-0 flex items-center">
