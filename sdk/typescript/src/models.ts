@@ -21,6 +21,7 @@ export const DocumentMetadataSchema = z.object({
   updated_at: z.string().datetime().optional(),
   mime_type: z.string().optional(),
   size: z.string().optional(),
+  content_type: z.string().optional(),
   url: z.string().optional(),
   path: z.string().optional(),
   extra: z.record(z.unknown()).optional(),

@@ -61,6 +61,9 @@ impl ConnectorManagerConfig {
         if let Ok(url) = env::var("CLICKUP_CONNECTOR_URL") {
             connector_urls.insert(SourceType::Clickup, url);
         }
+        if let Ok(url) = env::var("LINEAR_CONNECTOR_URL") {
+            connector_urls.insert(SourceType::Linear, url);
+        }
         if let Ok(url) = env::var("MICROSOFT_CONNECTOR_URL") {
             connector_urls.insert(SourceType::OneDrive, url.clone());
             connector_urls.insert(SourceType::SharePoint, url.clone());

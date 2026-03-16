@@ -168,6 +168,7 @@ pub enum SourceType {
     Fireflies,
     Imap,
     Clickup,
+    Linear,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, sqlx::Type, PartialEq)]
@@ -184,6 +185,7 @@ pub enum ServiceProvider {
     Fireflies,
     Imap,
     Clickup,
+    Linear,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, sqlx::Type, PartialEq)]

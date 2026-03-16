@@ -182,6 +182,12 @@ services:
       context: ..
       dockerfile: connectors/clickup/Dockerfile
 
+  linear-connector:
+    image: omni-linear-connector:dev
+    build:
+      context: ..
+      dockerfile: connectors/linear/Dockerfile
+
   microsoft-connector:
     image: omni-microsoft-connector:dev
     build:

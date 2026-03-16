@@ -1,0 +1,26 @@
+{
+  "name": "@getomnico/linear-connector",
+  "version": "1.0.0",
+  "description": "Linear connector for Omni",
+  "type": "module",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "dev": "tsc --watch",
+    "lint": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "dependencies": {
+    "@getomnico/connector": "file:../../sdk/typescript",
+    "@linear/sdk": "^37.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  },
+  "license": "MIT"
+}

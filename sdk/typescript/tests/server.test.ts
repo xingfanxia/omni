@@ -83,6 +83,7 @@ describe('Connector Server', () => {
         version: '1.0.0',
         sync_modes: ['full', 'incremental'],
         actions: [],
+        search_operators: [],
       });
     });
   });

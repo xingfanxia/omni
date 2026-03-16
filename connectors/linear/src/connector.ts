@@ -1,0 +1,240 @@
+import {
+  Connector,
+  type SyncContext,
+  type ActionDefinition,
+  type ActionResponse,
+  type SearchOperator,
+  createActionResponseSuccess,
+  createActionResponseFailure,
+  createActionResponseNotSupported,
+} from '@getomnico/connector';
+import { LinearApiClient } from './client.js';
+import {
+  mapIssueToDocument,
+  generateIssueContent,
+  mapProjectToDocument,
+  generateProjectContent,
+  mapLinearDocumentToDocument,
+  generateDocumentContent,
+  mapProjectUpdateToDocument,
+  generateProjectUpdateContent,
+} from './mappers.js';
+import type { LinearSyncState, LinearSourceConfig, LinearCredentials } from './types.js';
+
+const CHECKPOINT_INTERVAL = 100;
+
+export class LinearConnector extends Connector {
+  readonly name = 'linear';
+  readonly version = '1.0.0';
+
+  get displayName(): string {
+    return 'Linear';
+  }
+
+  readonly syncModes = ['full', 'incremental'];
+
+  readonly actions: ActionDefinition[] = [
+    {
+      name: 'list_teams',
+      description: 'List all accessible teams in the Linear workspace',
+      parameters: {},
+      mode: 'read',
+    },
+  ];
+
+  readonly searchOperators: SearchOperator[] = [
+    { operator: 'status', attribute_key: 'status', value_type: 'text' },
+    { operator: 'priority', attribute_key: 'priority', value_type: 'text' },
+    { operator: 'label', attribute_key: 'labels', value_type: 'text' },
+    { operator: 'assignee', attribute_key: 'assignee', value_type: 'person' },
+    { operator: 'team', attribute_key: 'team', value_type: 'text' },
+    { operator: 'project', attribute_key: 'project_name', value_type: 'text' },
+  ];
+
+  async sync(
+    sourceConfig: Record<string, unknown>,
+    credentials: Record<string, unknown>,
+    state: Record<string, unknown> | null,
+    ctx: SyncContext,
+  ): Promise<void> {
+    const apiKey = (credentials as unknown as LinearCredentials).api_key;
+    if (!apiKey) {
+      await ctx.fail("Missing 'api_key' in credentials");
+      return;
+    }
+
+    const config = sourceConfig as unknown as LinearSourceConfig;
+    const client = new LinearApiClient(apiKey);
+
+    try {
+      const userName = await client.validateApiKey();
+      console.log(`Starting Linear sync as '${userName}'`);
+    } catch (e) {
+      await ctx.fail(`Authentication failed: ${e}`);
+      return;
+    }
+
+    const syncState = state as unknown as LinearSyncState | null;
+    const lastSyncAt = syncState?.last_sync_at;
+    const isIncremental = !!lastSyncAt;
+    let docsSinceCheckpoint = 0;
+
+    try {
+      const teams = await client.fetchTeams();
+      const teamFilter = config.team_keys;
+      const filteredTeams = teamFilter
+        ? teams.filter(t => teamFilter.includes(t.key))
+        : teams;
+
+      // Sync issues per team
+      for (const team of filteredTeams) {
+        if (ctx.isCancelled()) {
+          await ctx.fail('Cancelled by user');
+          return;
+        }
+        console.log(`Syncing issues for team: ${team.name} (${team.key})`);
+
+        for await (const issue of client.fetchIssues(team.id, lastSyncAt)) {
+          if (ctx.isCancelled()) {
+            await ctx.fail('Cancelled by user');
+            return;
+          }
+          await ctx.incrementScanned();
+          try {
+            const comments = await client.fetchIssueComments(issue.id);
+            const content = await generateIssueContent(issue, comments);
+            const contentId = await ctx.contentStorage.save(content, 'text/markdown');
+            const doc = await mapIssueToDocument(issue, comments, contentId);
+            if (isIncremental) {
+              await ctx.emitUpdated(doc);
+            } else {
+              await ctx.emit(doc);
+            }
+            docsSinceCheckpoint++;
+            if (docsSinceCheckpoint >= CHECKPOINT_INTERVAL) {
+              await ctx.saveState({ last_sync_at: new Date().toISOString() });
+              docsSinceCheckpoint = 0;
+            }
+          } catch (e) {
+            const eid = `linear:issue:${issue.id}`;
+            console.warn(`Error processing ${eid}: ${e}`);
+            ctx.emitError(eid, String(e));
+          }
+        }
+      }
+
+      // Sync projects
+      console.log('Syncing projects...');
+      for await (const project of client.fetchProjects(lastSyncAt)) {
+        if (ctx.isCancelled()) {
+          await ctx.fail('Cancelled by user');
+          return;
+        }
+        await ctx.incrementScanned();
+        try {
+          const updates = await client.fetchProjectUpdates(project.id);
+          const content = await generateProjectContent(project, updates);
+          const contentId = await ctx.contentStorage.save(content, 'text/markdown');
+          const doc = await mapProjectToDocument(project, updates, contentId);
+          if (isIncremental) {
+            await ctx.emitUpdated(doc);
+          } else {
+            await ctx.emit(doc);
+          }
+          docsSinceCheckpoint++;
+
+          // Sync project updates as separate documents
+          for (const update of updates) {
+            if (lastSyncAt && update.createdAt < new Date(lastSyncAt)) continue;
+            await ctx.incrementScanned();
+            try {
+              const updateContent = await generateProjectUpdateContent(update, project.name);
+              const updateContentId = await ctx.contentStorage.save(updateContent, 'text/markdown');
+              const updateDoc = await mapProjectUpdateToDocument(update, project.name, updateContentId);
+              if (isIncremental) {
+                await ctx.emitUpdated(updateDoc);
+              } else {
+                await ctx.emit(updateDoc);
+              }
+              docsSinceCheckpoint++;
+            } catch (e) {
+              const eid = `linear:project_update:${update.id}`;
+              console.warn(`Error processing ${eid}: ${e}`);
+              ctx.emitError(eid, String(e));
+            }
+          }
+
+          if (docsSinceCheckpoint >= CHECKPOINT_INTERVAL) {
+            await ctx.saveState({ last_sync_at: new Date().toISOString() });
+            docsSinceCheckpoint = 0;
+          }
+        } catch (e) {
+          const eid = `linear:project:${project.id}`;
+          console.warn(`Error processing ${eid}: ${e}`);
+          ctx.emitError(eid, String(e));
+        }
+      }
+
+      // Sync documents
+      console.log('Syncing documents...');
+      for await (const doc of client.fetchDocuments(lastSyncAt)) {
+        if (ctx.isCancelled()) {
+          await ctx.fail('Cancelled by user');
+          return;
+        }
+        await ctx.incrementScanned();
+        try {
+          const content = await generateDocumentContent(doc);
+          const contentId = await ctx.contentStorage.save(content, 'text/markdown');
+          const omniDoc = await mapLinearDocumentToDocument(doc, contentId);
+          if (isIncremental) {
+            await ctx.emitUpdated(omniDoc);
+          } else {
+            await ctx.emit(omniDoc);
+          }
+          docsSinceCheckpoint++;
+          if (docsSinceCheckpoint >= CHECKPOINT_INTERVAL) {
+            await ctx.saveState({ last_sync_at: new Date().toISOString() });
+            docsSinceCheckpoint = 0;
+          }
+        } catch (e) {
+          const eid = `linear:document:${doc.id}`;
+          console.warn(`Error processing ${eid}: ${e}`);
+          ctx.emitError(eid, String(e));
+        }
+      }
+
+      const newState: LinearSyncState = { last_sync_at: new Date().toISOString() };
+      await ctx.complete(newState as unknown as Record<string, unknown>);
+      console.log(`Sync completed: ${ctx.documentsScanned} scanned, ${ctx.documentsEmitted} emitted`);
+    } catch (e) {
+      console.error('Sync failed with unexpected error:', e);
+      await ctx.fail(String(e));
+    }
+  }
+
+  async executeAction(
+    action: string,
+    _params: Record<string, unknown>,
+    credentials: Record<string, unknown>,
+  ): Promise<ActionResponse> {
+    if (action !== 'list_teams') {
+      return createActionResponseNotSupported(action);
+    }
+
+    const apiKey = (credentials as unknown as LinearCredentials).api_key;
+    if (!apiKey) {
+      return createActionResponseFailure("Missing 'api_key' in credentials");
+    }
+
+    try {
+      const client = new LinearApiClient(apiKey);
+      const teams = await client.fetchTeams();
+      return createActionResponseSuccess({
+        teams: teams.map(t => ({ key: t.key, name: t.name })),
+      });
+    } catch (e) {
+      return createActionResponseFailure(String(e));
+    }
+  }
+}

@@ -3,6 +3,7 @@ import type {
   ConnectorManifest,
   ActionDefinition,
   ActionResponse,
+  SearchOperator,
 } from './models.js';
 import { createActionResponseNotSupported } from './models.js';
 import { createServer } from './server.js';
@@ -22,6 +23,7 @@ export abstract class Connector {
 
   readonly syncModes: string[] = ['full'];
   readonly actions: ActionDefinition[] = [];
+  readonly searchOperators: SearchOperator[] = [];
 
   getManifest(): ConnectorManifest {
     return {
@@ -30,6 +32,7 @@ export abstract class Connector {
       version: this.version,
       sync_modes: this.syncModes,
       actions: this.actions,
+      search_operators: this.searchOperators,
     };
   }
 
