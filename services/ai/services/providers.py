@@ -71,6 +71,14 @@ def _create_provider_from_model_record(record: ModelRecord) -> LLMProvider:
             model=model_id,
         )
 
+    elif provider_type == "vertex_ai":
+        return create_llm_provider(
+            "vertex_ai",
+            region=config.get("regionName", ""),
+            project_id=config.get("projectId", ""),
+            model=model_id,
+        )
+
     else:
         raise ValueError(f"Unknown provider type: {provider_type}")
 

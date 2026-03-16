@@ -11,6 +11,7 @@ export const MODEL_PROVIDER_TYPES = [
     'openai',
     'gemini',
     'azure_foundry',
+    'vertex_ai',
 ] as const
 export type ModelProviderType = (typeof MODEL_PROVIDER_TYPES)[number]
 
@@ -18,6 +19,7 @@ export interface ModelProviderConfig {
     apiKey?: string | null
     apiUrl?: string | null
     regionName?: string | null
+    projectId?: string | null
 }
 
 export interface CreateProviderInput {
@@ -65,6 +67,11 @@ export const PREDEFINED_MODELS: Record<
         { modelId: 'gemini-2.5-flash-lite', displayName: 'Gemini 2.5 Flash Lite' },
     ],
     azure_foundry: [],
+    vertex_ai: [
+        { modelId: 'claude-sonnet-4-5-20250929', displayName: 'Claude Sonnet 4.5' },
+        { modelId: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro' },
+        { modelId: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash' },
+    ],
 }
 
 // --- Provider CRUD ---

@@ -50,6 +50,7 @@ from .bedrock import BedrockProvider
 from .openai import OpenAIProvider
 from .gemini import GeminiProvider
 from .azure_foundry import AzureFoundryProvider
+from .vertex_ai import VertexAIProvider
 
 
 # Factory function to create LLM providers
@@ -99,6 +100,16 @@ def create_llm_provider(provider_type: str, **kwargs) -> LLMProvider:
         model = kwargs.get("model", "gpt-4o")
         return AzureFoundryProvider(endpoint_url, model)
 
+    elif provider_type.lower() == "vertex_ai":
+        region = kwargs.get("region")
+        project_id = kwargs.get("project_id")
+        if not region or not project_id:
+            raise ValueError(
+                "region and project_id are required for Vertex AI provider"
+            )
+        model = kwargs.get("model", "gemini-2.5-flash")
+        return VertexAIProvider(region=region, project_id=project_id, model=model)
+
     else:
         raise ValueError(f"Unknown provider type: {provider_type}")
 
@@ -111,5 +122,6 @@ __all__ = [
     "OpenAIProvider",
     "GeminiProvider",
     "AzureFoundryProvider",
+    "VertexAIProvider",
     "create_llm_provider",
 ]
