@@ -72,26 +72,24 @@
                     </div>
                 </Card.Header>
                 <Card.Content>
-                    {#if passwordEnabled}
-                        <form
-                            method="POST"
-                            action="?/updatePassword"
-                            use:enhance={() => {
-                                passwordIsSubmitting = true
-                                return async ({ result, update }) => {
-                                    passwordIsSubmitting = false
-                                    await update()
-                                    if (result.type === 'success') {
-                                        toast.success(
-                                            result.data?.message || 'Password auth disabled',
-                                        )
-                                        passwordEnabled = false
-                                    } else if (result.type === 'failure') {
-                                        toast.error(result.data?.error || 'Something went wrong')
-                                    }
+                    <form
+                        method="POST"
+                        action="?/updatePassword"
+                        use:enhance={() => {
+                            passwordIsSubmitting = true
+                            return async ({ result, update }) => {
+                                passwordIsSubmitting = false
+                                await update()
+                                if (result.type === 'success') {
+                                    toast.success(result.data?.message || 'Settings saved')
+                                    passwordEnabled = !passwordEnabled
+                                } else if (result.type === 'failure') {
+                                    toast.error(result.data?.error || 'Something went wrong')
                                 }
-                            }}>
-                            <input type="hidden" name="enabled" value="false" />
+                            }
+                        }}>
+                        <input type="hidden" name="enabled" value={!passwordEnabled} />
+                        {#if passwordEnabled}
                             <Button
                                 type="submit"
                                 variant="outline"
@@ -100,27 +98,7 @@
                                 class="cursor-pointer gap-1 text-red-600 hover:text-red-700">
                                 {passwordIsSubmitting ? 'Disabling...' : 'Disable'}
                             </Button>
-                        </form>
-                    {:else}
-                        <form
-                            method="POST"
-                            action="?/updatePassword"
-                            use:enhance={() => {
-                                passwordIsSubmitting = true
-                                return async ({ result, update }) => {
-                                    passwordIsSubmitting = false
-                                    await update()
-                                    if (result.type === 'success') {
-                                        toast.success(
-                                            result.data?.message || 'Password auth enabled',
-                                        )
-                                        passwordEnabled = true
-                                    } else if (result.type === 'failure') {
-                                        toast.error(result.data?.error || 'Something went wrong')
-                                    }
-                                }
-                            }}>
-                            <input type="hidden" name="enabled" value="true" />
+                        {:else}
                             <Button
                                 type="submit"
                                 size="sm"
@@ -128,8 +106,8 @@
                                 class="cursor-pointer">
                                 {passwordIsSubmitting ? 'Enabling...' : 'Enable'}
                             </Button>
-                        </form>
-                    {/if}
+                        {/if}
+                    </form>
                 </Card.Content>
             </Card.Root>
 
