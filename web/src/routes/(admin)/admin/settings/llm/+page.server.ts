@@ -206,6 +206,7 @@ function parseConfig(formData: FormData, providerType: string): ModelProviderCon
         apiKey: (formData.get('apiKey') as string) || null,
         apiUrl: (formData.get('apiUrl') as string) || null,
         regionName: (formData.get('regionName') as string) || null,
+        projectId: (formData.get('projectId') as string) || null,
     }
 }
 
@@ -223,6 +224,10 @@ function validateConfig(
         return 'API key is required for OpenAI'
     if (providerType === 'gemini' && !config.apiKey && !isEdit)
         return 'API key is required for Gemini'
+    if (providerType === 'vertex_ai' && !config.regionName)
+        return 'GCP Region is required for Vertex AI'
+    if (providerType === 'vertex_ai' && !config.projectId)
+        return 'GCP Project ID is required for Vertex AI'
 
     return null
 }
