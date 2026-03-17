@@ -1,6 +1,8 @@
 """Omni AI Service - Entry Point"""
 
+import asyncio
 import logging
+import os
 import uvicorn
 
 from fastapi import FastAPI
@@ -20,6 +22,7 @@ from routers import (
     embeddings_router,
     prompts_router,
     model_providers_router,
+    agents_router,
 )
 
 from config import PORT
@@ -39,6 +42,7 @@ app.include_router(embeddings_router)
 app.include_router(prompts_router)
 app.include_router(chat_router)
 app.include_router(model_providers_router)
+app.include_router(agents_router)
 
 
 @app.on_event("startup")
@@ -49,6 +53,11 @@ async def startup_event():
         await app.state.embedding_queue.start()
         await initialize_providers(app.state)
         await start_batch_processor(app.state)
+
+        if os.getenv("AGENTS_ENABLED", "false").lower() == "true":
+            from agents.scheduler import run_agent_scheduler
+
+            asyncio.create_task(run_agent_scheduler(app.state))
     except Exception as e:
         logger.error(f"Failed to initialize services: {e}")
         raise e

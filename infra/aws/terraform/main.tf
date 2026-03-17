@@ -198,6 +198,7 @@ module "compute" {
   session_cookie_name        = var.session_cookie_name
   session_duration_days      = var.session_duration_days
   ai_answer_enabled          = var.ai_answer_enabled
+  agents_enabled             = var.agents_enabled
 
   # Storage resources for S3 and batch inference
   content_bucket_arn     = module.storage.content_bucket_arn

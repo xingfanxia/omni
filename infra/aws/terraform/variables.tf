@@ -284,6 +284,12 @@ variable "ai_answer_enabled" {
   default     = "true"
 }
 
+variable "agents_enabled" {
+  description = "Enable background/scheduled agents feature"
+  type        = string
+  default     = "false"
+}
+
 # Networking Configuration
 variable "vpc_cidr" {
   description = "CIDR block for VPC"

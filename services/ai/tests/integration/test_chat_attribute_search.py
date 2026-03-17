@@ -10,29 +10,11 @@ that captures the SearchRequest for assertion.
 """
 
 import json
-from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-
-from anthropic.types import (
-    RawMessageStartEvent,
-    RawContentBlockStartEvent,
-    RawContentBlockDeltaEvent,
-    RawContentBlockStopEvent,
-    RawMessageStopEvent,
-    RawMessageDeltaEvent,
-    Message,
-    Usage,
-    TextBlock,
-    ToolUseBlock,
-    InputJSONDelta,
-    TextDelta,
-    MessageDeltaUsage,
-)
-from anthropic.types.raw_message_delta_event import Delta
 from ulid import ULID
 
 from db import UsersRepository, ChatsRepository, MessagesRepository
@@ -41,103 +23,9 @@ from routers import chat_router
 from state import AppState
 from tools import SearchResponse, SearchResult
 from tools.searcher_client import Document
+from tests.helpers import create_mock_llm
 
 pytestmark = pytest.mark.integration
-
-
-# ---------------------------------------------------------------------------
-# Mock LLM helpers
-# ---------------------------------------------------------------------------
-
-
-def _message_start_event():
-    return RawMessageStartEvent(
-        type="message_start",
-        message=Message(
-            id="msg_test",
-            content=[],
-            model="mock",
-            role="assistant",
-            stop_reason=None,
-            stop_sequence=None,
-            type="message",
-            usage=Usage(input_tokens=10, output_tokens=0),
-        ),
-    )
-
-
-def _tool_call_events(tool_call_json: dict[str, Any]):
-    """Yield Anthropic SDK events simulating a tool_use content block."""
-    yield _message_start_event()
-    yield RawContentBlockStartEvent(
-        type="content_block_start",
-        index=0,
-        content_block=ToolUseBlock(
-            type="tool_use",
-            id="toolu_attr_test",
-            name="search_documents",
-            input={},
-        ),
-    )
-    yield RawContentBlockDeltaEvent(
-        type="content_block_delta",
-        index=0,
-        delta=InputJSONDelta(
-            type="input_json_delta",
-            partial_json=json.dumps(tool_call_json),
-        ),
-    )
-    yield RawContentBlockStopEvent(type="content_block_stop", index=0)
-    yield RawMessageDeltaEvent(
-        type="message_delta",
-        delta=Delta(stop_reason="tool_use", stop_sequence=None),
-        usage=MessageDeltaUsage(output_tokens=30),
-    )
-    yield RawMessageStopEvent(type="message_stop")
-
-
-def _text_response_events(text: str):
-    """Yield Anthropic SDK events simulating a final text response."""
-    yield _message_start_event()
-    yield RawContentBlockStartEvent(
-        type="content_block_start",
-        index=0,
-        content_block=TextBlock(type="text", text=""),
-    )
-    yield RawContentBlockDeltaEvent(
-        type="content_block_delta",
-        index=0,
-        delta=TextDelta(type="text_delta", text=text),
-    )
-    yield RawContentBlockStopEvent(type="content_block_stop", index=0)
-    yield RawMessageDeltaEvent(
-        type="message_delta",
-        delta=Delta(stop_reason="end_turn", stop_sequence=None),
-        usage=MessageDeltaUsage(output_tokens=10),
-    )
-    yield RawMessageStopEvent(type="message_stop")
-
-
-def create_mock_llm(
-    tool_call_json: dict[str, Any], response_text: str = "Here are the results."
-):
-    """Return a mock LLMProvider whose stream_response yields tool call then text."""
-    call_count = 0
-
-    async def stream_response(*_args, **_kwargs):
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            for evt in _tool_call_events(tool_call_json):
-                yield evt
-        else:
-            for evt in _text_response_events(response_text):
-                yield evt
-
-    provider = AsyncMock()
-    provider.stream_response = stream_response
-    provider.health_check.return_value = True
-    return provider
 
 
 # ---------------------------------------------------------------------------
@@ -343,13 +231,9 @@ async def test_stream_completes_with_tool_results(
     events = parse_sse_events(body)
     event_types = [e[0] for e in events]
 
-    # The stream should follow this pattern:
-    # message (x6 for tool call) -> save_message -> message (tool_result) -> save_message
-    # -> message (x6 for text response) -> save_message -> end_of_stream
     assert "save_message" in event_types
     assert "end_of_stream" in event_types
 
-    # Verify tool_result event contains our canned document data
     tool_result_events = [
         (t, d) for t, d in events if t == "message" and "tool_result" in d
     ]
@@ -358,6 +242,5 @@ async def test_stream_completes_with_tool_results(
     assert tool_result_data["type"] == "tool_result"
     assert tool_result_data["is_error"] is False
 
-    # Verify the final text appears in the stream
     text_deltas = [d for t, d in events if t == "message" and response_text in d]
     assert len(text_deltas) >= 1

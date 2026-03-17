@@ -39,11 +39,15 @@ class ConnectorToolHandler:
         user_id: str,
         redis_client: aioredis.Redis | None = None,
         prefetched_sources: list[Source] | None = None,
+        source_filter: dict[str, list[str]] | None = None,
+        action_whitelist: list[str] | None = None,
     ) -> None:
         self._connector_manager_url = connector_manager_url.rstrip("/")
         self._user_id = user_id
         self._redis = redis_client
         self._prefetched_sources = prefetched_sources
+        self._source_filter = source_filter  # {source_id: ["read","write"]}
+        self._action_whitelist = action_whitelist  # ["gmail__send_email"]
         self._actions: dict[str, ConnectorAction] = {}
         self._tools: list[dict] = []
         self._search_operators: list[dict] = []
@@ -180,8 +184,23 @@ class ConnectorToolHandler:
 
         seen_tools: set[str] = set()
         for action in actions:
+            source_id = action["source_id"]
+
+            # Apply source_filter: skip actions not in allowed sources or modes
+            if self._source_filter is not None:
+                if source_id not in self._source_filter:
+                    continue
+                allowed_modes = self._source_filter[source_id]
+                if action.get("mode", "write") not in allowed_modes:
+                    continue
+
             # Namespace: {source_type}__{action_name}
             tool_name = f"{action['source_type']}__{action['action_name']}"
+
+            # Apply action_whitelist: skip actions not in whitelist
+            if self._action_whitelist is not None:
+                if tool_name not in self._action_whitelist:
+                    continue
 
             if tool_name in seen_tools:
                 continue
@@ -235,6 +254,9 @@ class ConnectorToolHandler:
         return tool_name in self._actions
 
     def requires_approval(self, tool_name: str) -> bool:
+        # Pre-authorized when filters are active (background agent context)
+        if self._source_filter is not None or self._action_whitelist is not None:
+            return False
         action = self._actions.get(tool_name)
         if not action:
             return True

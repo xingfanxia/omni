@@ -63,6 +63,7 @@ resend_api_key = "your-resend-api-key"
 # session_cookie_name        = "auth-session"
 # session_duration_days      = "7"
 # ai_answer_enabled          = "true"
+# agents_enabled             = "false"
 
 # Optional: Networking Configuration
 vpc_cidr = "10.0.0.0/16"

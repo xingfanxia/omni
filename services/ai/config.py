@@ -115,3 +115,9 @@ APPROVAL_TIMEOUT_SECONDS = int(
     get_optional_env("APPROVAL_TIMEOUT_SECONDS", "600")
 )  # 10 minutes
 SANDBOX_URL = get_optional_env("SANDBOX_URL", "")
+
+# Background agent scheduler
+AGENT_SCHEDULER_POLL_INTERVAL = int(
+    get_optional_env("AGENT_SCHEDULER_POLL_INTERVAL", "30")
+)  # seconds
+AGENT_MAX_CONCURRENT_RUNS = int(get_optional_env("AGENT_MAX_CONCURRENT_RUNS", "3"))

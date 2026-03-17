@@ -39,6 +39,7 @@
         Trash2,
         Search,
         X,
+        Bot,
     } from '@lucide/svelte'
     import type { Snippet } from 'svelte'
     import { cn } from '$lib/utils'
@@ -216,6 +217,16 @@
         </SidebarHeader>
         <SidebarContent class="flex flex-col">
             <SidebarGroup class="flex-1">
+                {#if data.agentsEnabled}
+                    <Button
+                        href="/agents"
+                        class="mb-1 flex w-full cursor-pointer items-center justify-start has-[>svg]:px-2"
+                        variant="ghost">
+                        <Bot />
+                        <span class="group-data-[collapsible=icon]:hidden">Agents</span>
+                    </Button>
+                {/if}
+
                 <Button
                     href="/"
                     class="my-2 flex w-full cursor-pointer items-center justify-start has-[>svg]:px-2"
@@ -381,7 +392,9 @@
                         ? 'Search'
                         : page.url.pathname.startsWith('/chat')
                           ? 'Chat'
-                          : ''}
+                          : page.url.pathname.startsWith('/agents')
+                            ? 'Agents'
+                            : ''}
                 </h2>
             </div>
         </header>
