@@ -1,0 +1,410 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Change detection
+  # ---------------------------------------------------------------------------
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      is-tag: ${{ steps.check-tag.outputs.is-tag }}
+      ai: ${{ steps.filter.outputs.ai }}
+      web: ${{ steps.filter.outputs.web }}
+      searcher: ${{ steps.filter.outputs.searcher }}
+      indexer: ${{ steps.filter.outputs.indexer }}
+      connector-manager: ${{ steps.filter.outputs.connector-manager }}
+      sandbox: ${{ steps.filter.outputs.sandbox }}
+      migrator: ${{ steps.filter.outputs.migrator }}
+      google-connector: ${{ steps.filter.outputs.google-connector }}
+      slack-connector: ${{ steps.filter.outputs.slack-connector }}
+      atlassian-connector: ${{ steps.filter.outputs.atlassian-connector }}
+      github-connector: ${{ steps.filter.outputs.github-connector }}
+      microsoft-connector: ${{ steps.filter.outputs.microsoft-connector }}
+      filesystem-connector: ${{ steps.filter.outputs.filesystem-connector }}
+      fireflies-connector: ${{ steps.filter.outputs.fireflies-connector }}
+      hubspot-connector: ${{ steps.filter.outputs.hubspot-connector }}
+      imap-connector: ${{ steps.filter.outputs.imap-connector }}
+      notion-connector: ${{ steps.filter.outputs.notion-connector }}
+      web-connector: ${{ steps.filter.outputs.web-connector }}
+      deployment: ${{ steps.filter.outputs.deployment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check if tag push
+        id: check-tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "is-tag=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is-tag=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Detect changed paths
+        if: steps.check-tag.outputs.is-tag != 'true'
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            ai:
+              - 'services/ai/**'
+            web:
+              - 'web/**'
+            searcher:
+              - 'services/searcher/**'
+              - 'shared/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+            indexer:
+              - 'services/indexer/**'
+              - 'shared/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+            connector-manager:
+              - 'services/connector-manager/**'
+              - 'shared/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+            sandbox:
+              - 'services/sandbox/**'
+              - 'shared/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+            migrator:
+              - 'services/migrations/**'
+            google-connector:
+              - 'connectors/google/**'
+              - 'shared/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+            slack-connector:
+              - 'connectors/slack/**'
+              - 'shared/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+            atlassian-connector:
+              - 'connectors/atlassian/**'
+              - 'shared/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+            filesystem-connector:
+              - 'connectors/filesystem/**'
+              - 'shared/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+            fireflies-connector:
+              - 'connectors/fireflies/**'
+              - 'shared/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+            imap-connector:
+              - 'connectors/imap/**'
+              - 'shared/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+            web-connector:
+              - 'connectors/web/**'
+              - 'shared/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+            github-connector:
+              - 'connectors/github/**'
+              - 'sdk/python/**'
+            hubspot-connector:
+              - 'connectors/hubspot/**'
+              - 'sdk/python/**'
+            microsoft-connector:
+              - 'connectors/microsoft/**'
+              - 'sdk/python/**'
+            notion-connector:
+              - 'connectors/notion/**'
+              - 'sdk/python/**'
+            deployment:
+              - 'docker/docker-compose.yml'
+              - 'docker/docker-compose.gpu.yml'
+              - '.env.example'
+              - 'Caddyfile'
+              - 'infra/**'
+
+  # ---------------------------------------------------------------------------
+  # Core services
+  # ---------------------------------------------------------------------------
+  build-ai:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is-tag != 'true' && needs.detect-changes.outputs.ai == 'true'
+    uses: ./.github/workflows/build-service.yml
+    with:
+      image-name: omni-ai
+      docker-context: services/ai
+      dockerfile: services/ai/Dockerfile
+      free-disk-space: true
+    secrets: inherit
+
+  build-web:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is-tag != 'true' && needs.detect-changes.outputs.web == 'true'
+    uses: ./.github/workflows/build-service.yml
+    with:
+      image-name: omni-web
+      docker-context: web
+      dockerfile: web/Dockerfile
+    secrets: inherit
+
+  build-searcher:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is-tag != 'true' && needs.detect-changes.outputs.searcher == 'true'
+    uses: ./.github/workflows/build-service.yml
+    with:
+      image-name: omni-searcher
+      docker-context: .
+      dockerfile: services/searcher/Dockerfile
+    secrets: inherit
+
+  build-indexer:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is-tag != 'true' && needs.detect-changes.outputs.indexer == 'true'
+    uses: ./.github/workflows/build-service.yml
+    with:
+      image-name: omni-indexer
+      docker-context: .
+      dockerfile: services/indexer/Dockerfile
+    secrets: inherit
+
+  build-connector-manager:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is-tag != 'true' && needs.detect-changes.outputs.connector-manager == 'true'
+    uses: ./.github/workflows/build-service.yml
+    with:
+      image-name: omni-connector-manager
+      docker-context: .
+      dockerfile: services/connector-manager/Dockerfile
+    secrets: inherit
+
+  build-sandbox:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is-tag != 'true' && needs.detect-changes.outputs.sandbox == 'true'
+    uses: ./.github/workflows/build-service.yml
+    with:
+      image-name: omni-sandbox
+      docker-context: .
+      dockerfile: services/sandbox/Dockerfile
+    secrets: inherit
+
+  build-migrator:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is-tag != 'true' && needs.detect-changes.outputs.migrator == 'true'
+    uses: ./.github/workflows/build-service.yml
+    with:
+      image-name: omni-migrator
+      docker-context: .
+      dockerfile: services/migrations/Dockerfile
+    secrets: inherit
+
+  # ---------------------------------------------------------------------------
+  # Connectors (Rust)
+  # ---------------------------------------------------------------------------
+  build-google-connector:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is-tag != 'true' && needs.detect-changes.outputs.google-connector == 'true'
+    uses: ./.github/workflows/build-connector.yml
+    with:
+      connector-name: google
+      connector-type: rust
+    secrets: inherit
+
+  build-slack-connector:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is-tag != 'true' && needs.detect-changes.outputs.slack-connector == 'true'
+    uses: ./.github/workflows/build-connector.yml
+    with:
+      connector-name: slack
+      connector-type: rust
+    secrets: inherit
+
+  build-atlassian-connector:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is-tag != 'true' && needs.detect-changes.outputs.atlassian-connector == 'true'
+    uses: ./.github/workflows/build-connector.yml
+    with:
+      connector-name: atlassian
+      connector-type: rust
+    secrets: inherit
+
+  build-filesystem-connector:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is-tag != 'true' && needs.detect-changes.outputs.filesystem-connector == 'true'
+    uses: ./.github/workflows/build-connector.yml
+    with:
+      connector-name: filesystem
+      connector-type: rust
+    secrets: inherit
+
+  build-fireflies-connector:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is-tag != 'true' && needs.detect-changes.outputs.fireflies-connector == 'true'
+    uses: ./.github/workflows/build-connector.yml
+    with:
+      connector-name: fireflies
+      connector-type: rust
+    secrets: inherit
+
+  build-imap-connector:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is-tag != 'true' && needs.detect-changes.outputs.imap-connector == 'true'
+    uses: ./.github/workflows/build-connector.yml
+    with:
+      connector-name: imap
+      connector-type: rust
+    secrets: inherit
+
+  build-web-connector:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is-tag != 'true' && needs.detect-changes.outputs.web-connector == 'true'
+    uses: ./.github/workflows/build-connector.yml
+    with:
+      connector-name: web
+      connector-type: rust
+    secrets: inherit
+
+  # ---------------------------------------------------------------------------
+  # Connectors (Python)
+  # ---------------------------------------------------------------------------
+  build-github-connector:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is-tag != 'true' && needs.detect-changes.outputs.github-connector == 'true'
+    uses: ./.github/workflows/build-connector.yml
+    with:
+      connector-name: github
+      connector-type: python
+    secrets: inherit
+
+  build-hubspot-connector:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is-tag != 'true' && needs.detect-changes.outputs.hubspot-connector == 'true'
+    uses: ./.github/workflows/build-connector.yml
+    with:
+      connector-name: hubspot
+      connector-type: python
+    secrets: inherit
+
+  build-microsoft-connector:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is-tag != 'true' && needs.detect-changes.outputs.microsoft-connector == 'true'
+    uses: ./.github/workflows/build-connector.yml
+    with:
+      connector-name: microsoft
+      connector-type: python
+    secrets: inherit
+
+  build-notion-connector:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is-tag != 'true' && needs.detect-changes.outputs.notion-connector == 'true'
+    uses: ./.github/workflows/build-connector.yml
+    with:
+      connector-name: notion
+      connector-type: python
+    secrets: inherit
+
+  # ---------------------------------------------------------------------------
+  # Release: retag existing master images with version tags
+  # ---------------------------------------------------------------------------
+  release-retag:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is-tag == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Retag all images with version tags
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          REPO="${{ github.repository }}"
+          SOURCE_PREFIX="master-${SHORT_SHA}"
+
+          VERSION="${GITHUB_REF_NAME#v}"
+          MAJOR=$(echo "$VERSION" | cut -d. -f1)
+          MINOR=$(echo "$VERSION" | cut -d. -f1-2)
+
+          IMAGES=(
+            omni-ai
+            omni-web
+            omni-searcher
+            omni-indexer
+            omni-connector-manager
+            omni-sandbox
+            omni-migrator
+            omni-google-connector
+            omni-slack-connector
+            omni-atlassian-connector
+            omni-github-connector
+            omni-microsoft-connector
+            omni-filesystem-connector
+            omni-fireflies-connector
+            omni-hubspot-connector
+            omni-imap-connector
+            omni-notion-connector
+            omni-web-connector
+          )
+
+          TAGS=("$VERSION" "$MINOR" "$MAJOR" "latest")
+
+          FAILED=()
+          for IMAGE in "${IMAGES[@]}"; do
+            FULL="ghcr.io/${REPO}/${IMAGE}"
+            SOURCE="${FULL}:${SOURCE_PREFIX}"
+
+            if ! docker buildx imagetools inspect "$SOURCE" > /dev/null 2>&1; then
+              echo "::error::Source image not found: $SOURCE (commit ${SHORT_SHA} was never built on master)"
+              FAILED+=("$IMAGE")
+              continue
+            fi
+
+            for TAG in "${TAGS[@]}"; do
+              echo "Tagging ${FULL}:${TAG}"
+              docker buildx imagetools create -t "${FULL}:${TAG}" "$SOURCE"
+            done
+          done
+
+          if [ ${#FAILED[@]} -gt 0 ]; then
+            echo "::error::The following images were not found for commit ${SHORT_SHA}:"
+            printf '  - %s\n' "${FAILED[@]}"
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Deployment packaging
+  # ---------------------------------------------------------------------------
+  package-deployment:
+    needs: detect-changes
+    if: >
+      github.event_name != 'pull_request' &&
+      (needs.detect-changes.outputs.is-tag == 'true' || needs.detect-changes.outputs.deployment == 'true')
+    uses: ./.github/workflows/package-deployment.yml
+    secrets: inherit

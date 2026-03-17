@@ -1,28 +1,26 @@
-name: Build Connector Manager
+name: Build Service
 
 on:
-  push:
-    branches: [main, master]
-    tags: ['v*']
-    paths:
-      - 'services/connector-manager/**'
-      - 'shared/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/build-connector-manager.yml'
-  pull_request:
-    branches: [main, master]
-    paths:
-      - 'services/connector-manager/**'
-      - 'shared/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/build-connector-manager.yml'
+  workflow_call:
+    inputs:
+      image-name:
+        required: true
+        type: string
+      docker-context:
+        required: true
+        type: string
+      dockerfile:
+        required: true
+        type: string
+      free-disk-space:
+        required: false
+        type: boolean
+        default: false
 
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ${{ github.repository }}
-  IMAGE_NAME: omni-connector-manager
+  IMAGE_NAME: ${{ inputs.image-name }}
 
 jobs:
   build:
@@ -40,6 +38,20 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Free disk space
+        if: inputs.free-disk-space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /usr/share/swift
+          sudo rm -rf /usr/local/graalvm
+          sudo rm -rf /usr/share/miniconda
+          sudo rm -rf /usr/local/share/powershell
+          sudo docker image prune --all --force
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -71,9 +83,9 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: ${{ inputs.docker-context }}
           platforms: linux/${{ matrix.arch }}
-          file: services/connector-manager/Dockerfile
+          file: ${{ inputs.dockerfile }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -123,6 +135,20 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Free disk space
+        if: inputs.free-disk-space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /usr/share/swift
+          sudo rm -rf /usr/local/graalvm
+          sudo rm -rf /usr/share/miniconda
+          sudo rm -rf /usr/local/share/powershell
+          sudo docker image prune --all --force
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -132,9 +158,9 @@ jobs:
       - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: ${{ inputs.docker-context }}
           platforms: linux/amd64
-          file: services/connector-manager/Dockerfile
+          file: ${{ inputs.dockerfile }}
           push: false
           cache-from: type=gha,scope=amd64
           cache-to: type=gha,mode=max,scope=amd64

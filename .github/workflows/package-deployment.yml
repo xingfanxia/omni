@@ -1,15 +1,7 @@
 name: Package Deployment Configs
 
 on:
-  push:
-    branches: [master]
-    tags: ['v*']
-    paths:
-      - 'docker/docker-compose.yml'
-      - 'docker/docker-compose.gpu.yml'
-      - '.env.example'
-      - 'Caddyfile'
-      - 'infra/**'
+  workflow_call:
 
 jobs:
   package:
