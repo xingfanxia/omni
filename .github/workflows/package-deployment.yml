@@ -9,7 +9,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Package Docker Compose deployment
         run: |
@@ -33,7 +33,7 @@ jobs:
           tar -czf omni-terraform-gcp.tar.gz -C staging/terraform-gcp .
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: deployment-archives
           path: |
