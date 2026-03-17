@@ -171,6 +171,13 @@ class SearchToolHandler:
                     TextBlockParam(type="text", text=f"[Attributes: {attrs_str}]")
                 )
 
+            extra = (doc.metadata or {}).get("extra")
+            if extra and isinstance(extra, dict):
+                extra_str = ", ".join(f"{k}: {v}" for k, v in extra.items())
+                metadata_blocks.append(
+                    TextBlockParam(type="text", text=f"[Extra: {extra_str}]")
+                )
+
             content_blocks.append(
                 SearchResultBlockParam(
                     type="search_result",
