@@ -163,6 +163,7 @@ module "compute" {
   session_cookie_name        = var.session_cookie_name
   session_duration_days      = var.session_duration_days
   ai_answer_enabled          = var.ai_answer_enabled
+  agents_enabled             = var.agents_enabled
 
   content_bucket_name = module.storage.content_bucket_name
   batch_bucket_name   = module.storage.batch_bucket_name

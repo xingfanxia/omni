@@ -102,6 +102,7 @@ resource "google_cloud_run_v2_service" "web" {
           RESEND_API_KEY          = var.resend_api_key
           EMAIL_FROM              = "Omni <noreply@getomni.co>"
           AI_ANSWER_ENABLED       = var.ai_answer_enabled
+          AGENTS_ENABLED          = var.agents_enabled
         })
         content {
           name  = env.key
@@ -351,6 +352,7 @@ resource "google_cloud_run_v2_service" "ai" {
           EMBEDDING_BATCH_ACCUMULATION_TIMEOUT_SECONDS    = var.embedding_batch_accumulation_timeout_seconds
           EMBEDDING_BATCH_ACCUMULATION_POLL_INTERVAL      = var.embedding_batch_accumulation_poll_interval
           EMBEDDING_BATCH_MONITOR_POLL_INTERVAL           = var.embedding_batch_monitor_poll_interval
+          AGENTS_ENABLED                                  = var.agents_enabled
         })
         content {
           name  = env.key

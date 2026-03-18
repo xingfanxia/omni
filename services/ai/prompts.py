@@ -62,6 +62,70 @@ Connected apps: {connected_apps}
 - Prioritize accuracy over helpfulness. If something looks wrong, say so. Do not confirm the user's assumptions without verifying them first."""
 
 
+AGENT_SYSTEM_PROMPT_TEMPLATE = """You are an automated agent running on a schedule. Your task:
+{instructions}
+
+Execute this task now using the tools available to you.
+Do not ask questions — use your best judgment.
+When done, provide a brief summary of what you did and the outcomes.
+
+Connected apps: {connected_apps}
+{actions_section}
+# Searching
+- Use inline query operators for efficient filtering: in:slack, type:pdf, status:done, by:sarah, before:2024-06, after:2024-01.
+- Use multiple targeted searches rather than one broad search.
+
+# Taking actions
+- Execute actions directly without asking for confirmation.
+- After an action completes, continue with the next step.
+- Never repeat a failed action with the same parameters. Diagnose the issue first.
+
+# Response style
+- Be direct and concise.
+- Focus on completing the task efficiently."""
+
+
+def build_agent_system_prompt(
+    agent,
+    sources: list,
+    connector_actions: list | None = None,
+) -> str:
+    """Build system prompt for a background agent."""
+    seen = set()
+    display_names = []
+    for source in sources:
+        source_type = source.source_type
+        if source_type not in seen:
+            seen.add(source_type)
+            name = SOURCE_DISPLAY_NAMES.get(source_type, source_type)
+            display_names.append(name)
+
+    connected_apps = ", ".join(display_names) if display_names else "None"
+
+    actions_section = ""
+    if connector_actions:
+        actions_by_source: dict[str, list[str]] = {}
+        for action in connector_actions:
+            source_display = SOURCE_DISPLAY_NAMES.get(
+                action.source_type, action.source_type
+            )
+            action_desc = f"  - {action.action_name}: {action.description}"
+            actions_by_source.setdefault(source_display, []).append(action_desc)
+
+        actions_lines = ["\nAvailable actions:"]
+        for source_name, actions in actions_by_source.items():
+            actions_lines.append(f"{source_name}:")
+            actions_lines.extend(actions)
+
+        actions_section = "\n".join(actions_lines)
+
+    return AGENT_SYSTEM_PROMPT_TEMPLATE.format(
+        instructions=agent.instructions,
+        connected_apps=connected_apps,
+        actions_section=actions_section,
+    )
+
+
 def build_chat_system_prompt(
     sources: list,
     connector_actions: list | None = None,

@@ -165,6 +165,7 @@ services:
       SANDBOX_URL: ${SANDBOX_URL:-}
       AGENT_MAX_ITERATIONS: ${AGENT_MAX_ITERATIONS:-15}
       APPROVAL_TIMEOUT_SECONDS: ${APPROVAL_TIMEOUT_SECONDS:-600}
+      AGENTS_ENABLED: ${AGENTS_ENABLED:-false}
     networks:
       - omni-network
       - sandbox-net
@@ -547,6 +548,7 @@ services:
       EMAIL_PASSWORD: ${EMAIL_PASSWORD:-}
       EMAIL_SECURE: ${EMAIL_SECURE:-}
       AI_ANSWER_ENABLED: ${AI_ANSWER_ENABLED}
+      AGENTS_ENABLED: ${AGENTS_ENABLED:-false}
     networks:
       - omni-network
     depends_on:

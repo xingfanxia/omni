@@ -281,3 +281,9 @@ variable "ai_answer_enabled" {
   type        = string
   default     = "true"
 }
+
+variable "agents_enabled" {
+  description = "Enable background/scheduled agents feature"
+  type        = string
+  default     = "false"
+}

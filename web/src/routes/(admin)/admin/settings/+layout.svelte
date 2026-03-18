@@ -3,14 +3,16 @@
     import type { Snippet } from 'svelte'
     import { cn } from '$lib/utils'
     import { page } from '$app/state'
-    import { ArrowLeft, Cable, Users, Shield, Cpu, ArrowUpRight } from '@lucide/svelte'
+    import { ArrowLeft, Cable, Users, Shield, Cpu, ArrowUpRight, Bot } from '@lucide/svelte'
     import Button from '$lib/components/ui/button/button.svelte'
+    import type { LayoutData } from './$types.js'
 
     interface Props {
+        data: LayoutData
         children: Snippet
     }
 
-    let { children }: Props = $props()
+    let { data, children }: Props = $props()
 </script>
 
 <Sidebar.Provider>
@@ -99,6 +101,22 @@
                                 {/snippet}
                             </Sidebar.MenuButton>
                         </Sidebar.MenuItem>
+                        {#if data.agentsEnabled}
+                            <Sidebar.MenuItem>
+                                <Sidebar.MenuButton
+                                    class={cn(
+                                        page.url.pathname === '/admin/settings/agents' &&
+                                            'bg-sidebar-accent text-sidebar-accent-foreground',
+                                    )}>
+                                    {#snippet child({ props })}
+                                        <a href="/admin/settings/agents" {...props}>
+                                            <Bot class="h-4 w-4" />
+                                            <span>Org Agents</span>
+                                        </a>
+                                    {/snippet}
+                                </Sidebar.MenuButton>
+                            </Sidebar.MenuItem>
+                        {/if}
                     </Sidebar.Menu>
                 </Sidebar.GroupContent>
             </Sidebar.Group>

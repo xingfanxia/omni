@@ -28,3 +28,4 @@ class AppState:
     searcher_tool: SearcherTool | None = None
     content_storage: ContentStorage | None = None
     redis_client: aioredis.Redis | None = None
+    agent_run_queues: dict = field(default_factory=dict)  # {run_id: asyncio.Queue}

@@ -33,6 +33,7 @@ dependencies = [
     "cohere>=5.20.4",
     "google-genai>=1.0.0",
     "azure-identity>=1.19.0",
+    "croniter>=2.0.0",
 ]
 
 [tool.pytest.ini_options]
@@ -91,6 +92,7 @@ include = [
     "db*",
     "models*",
     "logger*",
+    "agents*",
 ]
 
 [dependency-groups]

@@ -1,4 +1,5 @@
 import { redirect } from '@sveltejs/kit'
+import { env } from '$env/dynamic/private'
 import type { LayoutServerLoad } from './$types.js'
 import { chatRepository } from '$lib/server/db/chats.js'
 
@@ -21,5 +22,6 @@ export const load: LayoutServerLoad = async ({ locals, depends }) => {
         user: locals.user,
         starredChats,
         recentChats,
+        agentsEnabled: env.AGENTS_ENABLED === 'true',
     }
 }

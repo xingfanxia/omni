@@ -9,81 +9,18 @@ import ulid
 from unittest.mock import AsyncMock, MagicMock
 
 from embeddings.batch_processor import EmbeddingBatchProcessor
-
-
-# =============================================================================
-# Test Data Setup Helpers
-# =============================================================================
+from tests.helpers import (
+    create_test_user as _create_test_user_full,
+    create_test_source,
+    create_test_document_with_content as create_test_document,
+    enqueue_document,
+)
 
 
 async def create_test_user(db_pool) -> str:
-    """Create a test user and return its ID."""
-    user_id = str(ulid.ULID())
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            """INSERT INTO users (id, email, password_hash)
-               VALUES ($1, $2, $3)""",
-            user_id,
-            f"test-{user_id}@example.com",
-            "hashed_password_placeholder",
-        )
+    """Wrapper that returns just user_id (batch processor tests don't need email)."""
+    user_id, _ = await _create_test_user_full(db_pool)
     return user_id
-
-
-async def create_test_source(db_pool, user_id: str) -> str:
-    """Create a test source and return its ID."""
-    source_id = str(ulid.ULID())
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            """INSERT INTO sources (id, name, source_type, created_by)
-               VALUES ($1, $2, $3, $4)""",
-            source_id,
-            "test-source",
-            "local_files",
-            user_id,
-        )
-    return source_id
-
-
-async def create_test_document(db_pool, source_id: str, content: str) -> str:
-    """Create a test document with content blob and return its ID."""
-    doc_id = str(ulid.ULID())
-    content_id = str(ulid.ULID())
-    content_bytes = content.encode("utf-8")
-    async with db_pool.acquire() as conn:
-        # Create content blob (required by batch processor)
-        await conn.execute(
-            """INSERT INTO content_blobs (id, content, size_bytes, storage_backend)
-               VALUES ($1, $2, $3, 'postgres')""",
-            content_id,
-            content_bytes,
-            len(content_bytes),
-        )
-        # Create document linking to content blob
-        await conn.execute(
-            """INSERT INTO documents (id, source_id, external_id, title, content_id, content, embedding_status)
-               VALUES ($1, $2, $3, $4, $5, $6, 'pending')""",
-            doc_id,
-            source_id,
-            f"test-{doc_id}",
-            "Test Document",
-            content_id,
-            content,
-        )
-    return doc_id
-
-
-async def enqueue_document(db_pool, document_id: str) -> str:
-    """Add document to embedding queue and return queue item ID."""
-    item_id = str(ulid.ULID())
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            """INSERT INTO embedding_queue (id, document_id, status)
-               VALUES ($1, $2, 'pending')""",
-            item_id,
-            document_id,
-        )
-    return item_id
 
 
 # =============================================================================

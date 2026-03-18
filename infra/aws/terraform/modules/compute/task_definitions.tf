@@ -116,7 +116,8 @@ resource "aws_ecs_task_definition" "web" {
       { name = "EMAIL_PROVIDER", value = "resend" },
       { name = "RESEND_API_KEY", value = var.resend_api_key },
       { name = "EMAIL_FROM", value = "Omni <noreply@getomni.co>" },
-      { name = "AI_ANSWER_ENABLED", value = var.ai_answer_enabled }
+      { name = "AI_ANSWER_ENABLED", value = var.ai_answer_enabled },
+      { name = "AGENTS_ENABLED", value = var.agents_enabled }
     ])
 
     secrets = local.common_secrets
@@ -273,7 +274,8 @@ resource "aws_ecs_task_definition" "ai" {
       { name = "EMBEDDING_BATCH_MAX_DOCUMENTS", value = var.embedding_batch_max_documents },
       { name = "EMBEDDING_BATCH_ACCUMULATION_TIMEOUT_SECONDS", value = var.embedding_batch_accumulation_timeout_seconds },
       { name = "EMBEDDING_BATCH_ACCUMULATION_POLL_INTERVAL", value = var.embedding_batch_accumulation_poll_interval },
-      { name = "EMBEDDING_BATCH_MONITOR_POLL_INTERVAL", value = var.embedding_batch_monitor_poll_interval }
+      { name = "EMBEDDING_BATCH_MONITOR_POLL_INTERVAL", value = var.embedding_batch_monitor_poll_interval },
+      { name = "AGENTS_ENABLED", value = var.agents_enabled }
     ])
 
     secrets = local.common_secrets

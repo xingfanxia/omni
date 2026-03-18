@@ -3,6 +3,7 @@ from .health import router as health_router
 from .embeddings import router as embeddings_router
 from .prompts import router as prompts_router
 from .model_providers import router as model_providers_router
+from .agents import router as agents_router
 
 __all__ = [
     "chat_router",
@@ -10,4 +11,5 @@ __all__ = [
     "embeddings_router",
     "prompts_router",
     "model_providers_router",
+    "agents_router",
 ]
