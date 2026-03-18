@@ -10,7 +10,13 @@ export class EmailService {
         isNewUser: boolean = false,
     ): Promise<EmailResult> {
         try {
-            const provider = getEmailProvider()
+            const provider = await getEmailProvider()
+            if (!provider) {
+                return {
+                    success: false,
+                    error: 'No email provider configured. Please configure one in admin settings.',
+                }
+            }
             return await provider.sendMagicLink(email, magicLinkUrl, isNewUser)
         } catch (error) {
             console.error('Error sending magic link email:', error)
@@ -23,7 +29,8 @@ export class EmailService {
 
     static async testConnection(): Promise<boolean> {
         try {
-            const provider = getEmailProvider()
+            const provider = await getEmailProvider()
+            if (!provider) return false
             return await provider.testConnection()
         } catch (error) {
             console.error('Email connection test failed:', error)

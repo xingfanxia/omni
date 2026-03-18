@@ -69,7 +69,6 @@ module "compute" {
 
   google_client_id     = var.google_client_id
   google_client_secret = var.google_client_secret
-  resend_api_key       = var.resend_api_key
 }
 ```
 
@@ -100,7 +99,6 @@ module "compute" {
 | embedding_api_key_arn | Embedding API key secret ARN | string | - | yes |
 | encryption_key_arn | Encryption key secret ARN | string | - | yes |
 | encryption_salt_arn | Encryption salt secret ARN | string | - | yes |
-| resend_api_key | Resend API key | string | "CONFIGURE_RESEND_API_KEY" | no |
 
 ## Outputs
 

@@ -98,9 +98,6 @@ resource "google_cloud_run_v2_service" "web" {
           OMNI_DOMAIN             = var.custom_domain
           ORIGIN                  = local.app_url
           APP_URL                 = local.app_url
-          EMAIL_PROVIDER          = "resend"
-          RESEND_API_KEY          = var.resend_api_key
-          EMAIL_FROM              = "Omni <noreply@getomni.co>"
           AI_ANSWER_ENABLED       = var.ai_answer_enabled
           AGENTS_ENABLED          = var.agents_enabled
         })

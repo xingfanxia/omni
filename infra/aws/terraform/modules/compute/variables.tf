@@ -133,13 +133,6 @@ variable "encryption_salt_arn" {
   type        = string
 }
 
-variable "resend_api_key" {
-  description = "Resend API key for emails"
-  type        = string
-  default     = "CONFIGURE_RESEND_API_KEY"
-  sensitive   = true
-}
-
 variable "otel_endpoint" {
   description = "OpenTelemetry collector endpoint (leave empty to disable)"
   type        = string

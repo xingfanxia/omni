@@ -119,13 +119,6 @@ variable "log_retention_days" {
   default     = 30
 }
 
-variable "resend_api_key" {
-  description = "Resend API key for emails"
-  type        = string
-  default     = "CONFIGURE_RESEND_API_KEY"
-  sensitive   = true
-}
-
 variable "vpc_cidr" {
   description = "CIDR block for VPC subnet"
   type        = string

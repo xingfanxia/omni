@@ -58,10 +58,6 @@ output "next_steps" {
        Cloud Console: https://console.cloud.google.com/run?project=${var.project_id}
        Logs: https://console.cloud.google.com/logs?project=${var.project_id}
 
-    Configure integrations:
-       Update these variables in terraform.tfvars:
-       - resend_api_key
-
     View logs:
        gcloud logging read 'resource.type="cloud_run_revision"' --project=${var.project_id} --limit=50
   EOT

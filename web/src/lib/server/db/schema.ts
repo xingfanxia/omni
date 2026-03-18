@@ -237,6 +237,17 @@ export const embeddingProviders = pgTable('embedding_providers', {
     updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
 })
 
+export const emailProviders = pgTable('email_providers', {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    providerType: text('provider_type').notNull(),
+    config: jsonb('config').notNull().default({}),
+    isCurrent: boolean('is_current').notNull().default(false),
+    isDeleted: boolean('is_deleted').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+})
+
 export const agents = pgTable('agents', {
     id: text('id').primaryKey(),
     userId: text('user_id')
@@ -288,5 +299,6 @@ export type AuthProvider = typeof authProviders.$inferSelect
 export type ConnectorConfig = typeof connectorConfigs.$inferSelect
 export type EmbeddingProvider = typeof embeddingProviders.$inferSelect
 export type ToolApproval = typeof toolApprovals.$inferSelect
+export type EmailProvider = typeof emailProviders.$inferSelect
 export type Agent = typeof agents.$inferSelect
 export type AgentRun = typeof agentRuns.$inferSelect

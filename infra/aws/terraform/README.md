@@ -94,9 +94,6 @@ custom_domain = "demo.getomni.co"
 # Optional
 region      = "us-east-1"
 environment = "production"
-
-# Configure email
-resend_api_key = "re_your_api_key"
 ```
 
 ### 4. Deploy
@@ -185,9 +182,6 @@ terraform/
 #### Load Balancer
 - `ssl_certificate_arn`: ACM certificate ARN for HTTPS
 - `alb_deletion_protection`: Enable deletion protection (default: `false`)
-
-#### Application
-- `resend_api_key`: Resend API key for emails
 
 See `variables.tf` for the complete list.
 
@@ -320,16 +314,6 @@ All secrets stored in AWS Secrets Manager:
    ```hcl
    google_client_id     = "xxx.apps.googleusercontent.com"
    google_client_secret = "GOCSPX-xxx"
-   ```
-4. Re-deploy: `./scripts/deploy.sh`
-
-#### Email (Resend)
-
-1. Sign up at [resend.com](https://resend.com)
-2. Create API key
-3. Update `terraform.tfvars`:
-   ```hcl
-   resend_api_key = "re_xxx"
    ```
 4. Re-deploy: `./scripts/deploy.sh`
 

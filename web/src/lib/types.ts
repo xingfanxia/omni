@@ -119,3 +119,12 @@ export const PROVIDER_LABELS: Record<EmbeddingProviderType, string> = {
     cohere: 'Cohere',
     bedrock: 'AWS Bedrock',
 }
+
+export const EMAIL_PROVIDER_TYPES = ['acs', 'resend', 'smtp'] as const
+export type EmailProviderType = (typeof EMAIL_PROVIDER_TYPES)[number]
+
+export const EMAIL_PROVIDER_LABELS: Record<EmailProviderType, string> = {
+    acs: 'Azure Communication Services',
+    resend: 'Resend',
+    smtp: 'SMTP',
+}
