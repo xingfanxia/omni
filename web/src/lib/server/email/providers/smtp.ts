@@ -1,8 +1,7 @@
 import { createTransport, type Transporter } from 'nodemailer'
-import type { EmailProvider, EmailResult } from '../types'
-import { generateMagicLinkHtml, generateMagicLinkText } from '../templates'
+import { EmailProvider, type EmailResult, type SendEmailParams } from '../types'
 
-export class SMTPEmailProvider implements EmailProvider {
+export class SMTPEmailProvider extends EmailProvider {
     private transporter: Transporter
     private fromEmail: string
 
@@ -14,6 +13,7 @@ export class SMTPEmailProvider implements EmailProvider {
         secure?: boolean
         fromEmail: string
     }) {
+        super()
         this.fromEmail = config.fromEmail
         this.transporter = createTransport({
             host: config.host,
@@ -26,37 +26,20 @@ export class SMTPEmailProvider implements EmailProvider {
         })
     }
 
-    async sendMagicLink(
-        email: string,
-        magicLinkUrl: string,
-        isNewUser: boolean = false,
-    ): Promise<EmailResult> {
+    async send(params: SendEmailParams): Promise<EmailResult> {
         try {
-            const subject = isNewUser
-                ? 'Welcome to Omni - Complete your account setup'
-                : 'Your Omni login link'
-
-            const html = generateMagicLinkHtml(magicLinkUrl, email, isNewUser)
-            const text = generateMagicLinkText(magicLinkUrl, email, isNewUser)
-
             const info = await this.transporter.sendMail({
                 from: this.fromEmail,
-                to: email,
-                subject,
-                html,
-                text,
+                to: params.to,
+                subject: params.subject,
+                html: params.html,
+                text: params.text,
             })
 
-            return {
-                success: true,
-                messageId: info.messageId,
-            }
+            return { success: true, messageId: info.messageId }
         } catch (error) {
             console.error('Error sending email via SMTP:', error)
-            return {
-                success: false,
-                error: 'Failed to send email',
-            }
+            return { success: false, error: 'Failed to send email' }
         }
     }
 

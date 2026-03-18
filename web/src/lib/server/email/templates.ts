@@ -134,6 +134,107 @@ export function generateMagicLinkHtml(
 		`
 }
 
+export function generateTestEmailHtml(email: string): string {
+    return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>omni</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.7;
+            color: #1a1a1a;
+            max-width: 560px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            background-color: #ffffff;
+        }
+        .logo {
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            color: #0a0a0a;
+            margin-bottom: 48px;
+        }
+        .body-text {
+            color: #374151;
+            font-size: 15px;
+            margin: 0 0 20px;
+        }
+        .check {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            background-color: #0a0a0a;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 20px;
+            color: #ffffff;
+            font-size: 11px;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        .status {
+            font-size: 15px;
+            font-weight: 500;
+            color: #0a0a0a;
+            margin: 32px 0;
+            padding: 16px 0;
+            border-top: 1px solid #e5e5e5;
+            border-bottom: 1px solid #e5e5e5;
+        }
+        .divider {
+            border: none;
+            border-top: 1px solid #e5e5e5;
+            margin: 40px 0 20px;
+        }
+        .footer {
+            font-size: 12px;
+            color: #9ca3af;
+        }
+        .footer a {
+            color: #9ca3af;
+        }
+    </style>
+</head>
+<body>
+    <div class="logo">omni</div>
+
+    <p class="body-text">This is a test email from your Omni instance.</p>
+
+    <p class="body-text">If you're reading this, everything is working — Omni can now send transactional emails like login links and notifications.</p>
+
+    <div class="status">
+        <span class="check">&#10003;</span>
+        Email provider connected
+    </div>
+
+    <hr class="divider">
+
+    <p class="footer">
+        Sent to ${email}
+    </p>
+</body>
+</html>
+		`
+}
+
+export function generateTestEmailText(email: string): string {
+    return `
+omni
+
+This is a test email from your Omni instance.
+
+If you're reading this, everything is working — Omni can now send transactional emails like login links and notifications.
+
+---
+Sent to ${email}
+		`.trim()
+}
+
 export function generateMagicLinkText(
     magicLinkUrl: string,
     email: string,

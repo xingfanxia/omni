@@ -152,11 +152,7 @@ export const actions: Actions = {
         if (!provider) return fail(400, { error: 'No email provider configured' })
 
         try {
-            const result = await provider.sendMagicLink(
-                adminEmail,
-                'https://example.com/test',
-                false,
-            )
+            const result = await provider.sendTestEmail(adminEmail)
             if (result.success) {
                 return { success: true, message: `Test email sent to ${adminEmail}` }
             }
