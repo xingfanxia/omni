@@ -6,7 +6,6 @@ import { listAllActiveModels } from '$lib/server/db/model-providers.js'
 export const load: PageServerLoad = async ({ locals }) => {
     const { user } = requireActiveUser(locals)
 
-    // Fetch user's connected sources
     let sources: any[] = []
     try {
         const config = getConfig()
@@ -14,9 +13,11 @@ export const load: PageServerLoad = async ({ locals }) => {
         if (resp.ok) {
             const allSources = await resp.json()
             sources = allSources.filter((s: any) => s.is_active && !s.is_deleted)
+        } else {
+            locals.logger.error('Failed to fetch sources', undefined, { status: resp.status })
         }
-    } catch {
-        // Sources unavailable
+    } catch (error) {
+        locals.logger.error('Failed to fetch sources from connector manager', error)
     }
 
     const models = await listAllActiveModels()

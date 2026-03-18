@@ -10,25 +10,10 @@
     import { formatSchedule } from '$lib/utils/schedule.js'
     import * as Select from '$lib/components/ui/select/index.js'
     import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js'
+    import { formatProviderName } from '$lib/utils/providers.js'
     import type { PageData } from './$types.js'
 
     let { data }: { data: PageData } = $props()
-
-    const providerDisplayNames: Record<string, string> = {
-        anthropic: 'Anthropic',
-        openai: 'OpenAI',
-        vllm: 'vLLM',
-        bedrock: 'Bedrock',
-        gemini: 'Gemini',
-        azure_foundry: 'Azure AI',
-        vertex_ai: 'Vertex AI',
-    }
-
-    function formatProviderName(provider: string): string {
-        return (
-            providerDisplayNames[provider] ?? provider.charAt(0).toUpperCase() + provider.slice(1)
-        )
-    }
 
     let groupedModels = $derived(
         Object.entries(

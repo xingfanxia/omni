@@ -2,6 +2,30 @@ import { db } from './index.js'
 import { agents, agentRuns } from './schema.js'
 import { eq, and, desc } from 'drizzle-orm'
 import { ulid } from 'ulid'
+import { error } from '@sveltejs/kit'
+import type { Agent } from './schema.js'
+
+/**
+ * Fetch an agent by ID and verify the user has access.
+ * Throws SvelteKit error (404/403) on failure.
+ */
+export async function requireAgentAccess(
+    agentId: string,
+    user: { id: string; role: string },
+): Promise<Agent> {
+    const agent = await getAgent(agentId)
+    if (!agent) {
+        throw error(404, 'Agent not found')
+    }
+    if (agent.agentType === 'org') {
+        if (user.role !== 'admin') {
+            throw error(403, 'Admin access required')
+        }
+    } else if (agent.userId !== user.id) {
+        throw error(403, 'Access denied')
+    }
+    return agent
+}
 
 export async function createAgent(data: {
     userId: string
