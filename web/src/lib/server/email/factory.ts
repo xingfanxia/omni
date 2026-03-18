@@ -19,34 +19,28 @@ export async function getEmailProvider(): Promise<EmailProvider | null> {
         return null
     }
 
-    const config = dbProvider.config as EmailProviderConfig
-    const type = dbProvider.providerType
+    const config = {
+        ...(dbProvider.config as Record<string, unknown>),
+        type: dbProvider.providerType,
+    } as EmailProviderConfig
 
-    if (type === 'acs') {
-        if (!config.connectionString || !config.senderAddress) {
-            providerLoaded = true
-            return null
-        }
-        emailProvider = new ACSEmailProvider(config.connectionString, config.senderAddress)
-    } else if (type === 'resend') {
-        if (!config.apiKey || !config.fromEmail) {
-            providerLoaded = true
-            return null
-        }
-        emailProvider = new ResendEmailProvider(config.apiKey, config.fromEmail)
-    } else if (type === 'smtp') {
-        if (!config.host || !config.user || !config.password || !config.fromEmail) {
-            providerLoaded = true
-            return null
-        }
-        emailProvider = new SMTPEmailProvider({
-            host: config.host,
-            port: config.port || undefined,
-            user: config.user,
-            password: config.password,
-            secure: config.secure || undefined,
-            fromEmail: config.fromEmail,
-        })
+    switch (config.type) {
+        case 'acs':
+            emailProvider = new ACSEmailProvider(config.connectionString, config.senderAddress)
+            break
+        case 'resend':
+            emailProvider = new ResendEmailProvider(config.apiKey, config.fromEmail)
+            break
+        case 'smtp':
+            emailProvider = new SMTPEmailProvider({
+                host: config.host,
+                port: config.port,
+                user: config.user,
+                password: config.password,
+                secure: config.secure,
+                fromEmail: config.fromEmail,
+            })
+            break
     }
 
     providerLoaded = true

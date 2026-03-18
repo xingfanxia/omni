@@ -6,17 +6,32 @@ import { ulid } from 'ulid'
 
 export { EMAIL_PROVIDER_TYPES, EMAIL_PROVIDER_LABELS, type EmailProviderType } from '$lib/types'
 
-export interface EmailProviderConfig {
-    connectionString?: string | null
-    senderAddress?: string | null
-    apiKey?: string | null
-    host?: string | null
-    port?: number | null
-    user?: string | null
-    password?: string | null
-    secure?: boolean | null
-    fromEmail?: string | null
+export interface ACSEmailProviderConfig {
+    type: 'acs'
+    connectionString: string
+    senderAddress: string
 }
+
+export interface ResendEmailProviderConfig {
+    type: 'resend'
+    apiKey: string
+    fromEmail: string
+}
+
+export interface SMTPEmailProviderConfig {
+    type: 'smtp'
+    host: string
+    port: number
+    user: string
+    password: string
+    secure: boolean
+    fromEmail: string
+}
+
+export type EmailProviderConfig =
+    | ACSEmailProviderConfig
+    | ResendEmailProviderConfig
+    | SMTPEmailProviderConfig
 
 export interface CreateEmailProviderInput {
     name: string

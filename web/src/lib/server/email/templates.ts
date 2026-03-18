@@ -152,12 +152,25 @@ export function generateTestEmailHtml(email: string): string {
             padding: 40px 20px;
             background-color: #ffffff;
         }
-        .logo {
+        .logo-row {
+            margin-bottom: 32px;
+        }
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+        .logo-text {
             font-size: 22px;
             font-weight: 700;
             letter-spacing: -0.5px;
             color: #0a0a0a;
-            margin-bottom: 48px;
+            vertical-align: middle;
+        }
+        @media (prefers-color-scheme: dark) {
+            .logo-icon-light { display: none !important; }
+            .logo-icon-dark { display: inline !important; }
         }
         .body-text {
             color: #374151;
@@ -201,7 +214,11 @@ export function generateTestEmailHtml(email: string): string {
     </style>
 </head>
 <body>
-    <div class="logo">omni</div>
+    <div class="logo-row">
+        <img src="https://getomni.co/assets/icons/omni-logo-256.png" alt="" class="logo-icon logo-icon-light" width="32" height="32">
+        <img src="https://getomni.co/assets/icons/omni-logo-dark-256.png" alt="" class="logo-icon logo-icon-dark" width="32" height="32" style="display:none;">
+        <span class="logo-text">omni</span>
+    </div>
 
     <p class="body-text">This is a test email from your Omni instance.</p>
 

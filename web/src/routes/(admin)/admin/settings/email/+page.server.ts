@@ -54,14 +54,13 @@ export const actions: Actions = {
         if (!providerType || !EMAIL_PROVIDER_TYPES.includes(providerType))
             return fail(400, { error: 'Invalid provider type' })
 
-        const config = parseConfig(formData, providerType)
-        const validation = validateConfig(providerType, config)
-        if (validation) return fail(400, { error: validation })
+        const result = buildConfig(formData, providerType)
+        if ('error' in result) return fail(400, { error: result.error })
 
         const name = EMAIL_PROVIDER_LABELS[providerType] || providerType
 
         try {
-            await createProvider({ name, providerType, config })
+            await createProvider({ name, providerType, config: result.config })
             resetEmailProvider()
             return { success: true, message: 'Email provider connected' }
         } catch (err) {
@@ -81,24 +80,16 @@ export const actions: Actions = {
         if (!existing) return fail(404, { error: 'Provider not found' })
 
         const providerType = existing.providerType as EmailProviderType
-        const config = parseConfig(formData, providerType)
-        const existingConfig = existing.config as Record<string, unknown>
+        const existingConfig = {
+            ...(existing.config as Record<string, unknown>),
+            type: existing.providerType,
+        } as EmailProviderConfig
 
-        if (!config.connectionString && existingConfig.connectionString) {
-            config.connectionString = existingConfig.connectionString as string
-        }
-        if (!config.apiKey && existingConfig.apiKey) {
-            config.apiKey = existingConfig.apiKey as string
-        }
-        if (!config.password && existingConfig.password) {
-            config.password = existingConfig.password as string
-        }
-
-        const validation = validateConfig(providerType, config, true)
-        if (validation) return fail(400, { error: validation })
+        const result = buildConfig(formData, providerType, existingConfig)
+        if ('error' in result) return fail(400, { error: result.error })
 
         try {
-            await updateProvider(id, { config })
+            await updateProvider(id, { config: result.config })
             resetEmailProvider()
             return { success: true, message: 'Provider updated' }
         } catch (err) {
@@ -171,17 +162,21 @@ export const actions: Actions = {
         const id = formData.get('id') as string
 
         try {
-            let provider
+            let config: EmailProviderConfig
             if (id) {
                 const dbProvider = await getProvider(id)
                 if (!dbProvider) return fail(404, { error: 'Provider not found' })
-                const config = dbProvider.config as EmailProviderConfig
-                provider = instantiateProvider(dbProvider.providerType as EmailProviderType, config)
+                config = {
+                    ...(dbProvider.config as Record<string, unknown>),
+                    type: dbProvider.providerType,
+                } as EmailProviderConfig
             } else {
-                const config = parseConfig(formData, providerType)
-                provider = instantiateProvider(providerType, config)
+                const result = buildConfig(formData, providerType)
+                if ('error' in result) return fail(400, { error: result.error })
+                config = result.config
             }
 
+            const provider = instantiateProvider(config)
             if (!provider) return fail(400, { error: 'Could not create provider instance' })
 
             const connected = await provider.testConnection()
@@ -197,70 +192,71 @@ export const actions: Actions = {
     },
 }
 
-function instantiateProvider(providerType: EmailProviderType, config: EmailProviderConfig) {
-    if (providerType === 'acs' && config.connectionString && config.senderAddress) {
-        return new ACSEmailProvider(config.connectionString, config.senderAddress)
-    } else if (providerType === 'resend' && config.apiKey && config.fromEmail) {
-        return new ResendEmailProvider(config.apiKey, config.fromEmail)
-    } else if (
-        providerType === 'smtp' &&
-        config.host &&
-        config.user &&
-        config.password &&
-        config.fromEmail
-    ) {
-        return new SMTPEmailProvider({
-            host: config.host,
-            port: config.port || undefined,
-            user: config.user,
-            password: config.password,
-            secure: config.secure || undefined,
-            fromEmail: config.fromEmail,
-        })
-    }
-    return null
-}
-
-function parseConfig(formData: FormData, providerType: string): EmailProviderConfig {
-    if (providerType === 'acs') {
-        return {
-            connectionString: (formData.get('connectionString') as string) || null,
-            senderAddress: (formData.get('senderAddress') as string)?.trim() || null,
-        }
-    } else if (providerType === 'resend') {
-        return {
-            apiKey: (formData.get('apiKey') as string) || null,
-            fromEmail: (formData.get('fromEmail') as string)?.trim() || null,
-        }
-    } else {
-        const portStr = formData.get('port') as string
-        return {
-            host: (formData.get('host') as string)?.trim() || null,
-            port: portStr ? parseInt(portStr, 10) : null,
-            user: (formData.get('user') as string) || null,
-            password: (formData.get('password') as string) || null,
-            secure: formData.get('secure') === 'true',
-            fromEmail: (formData.get('fromEmail') as string)?.trim() || null,
-        }
+function instantiateProvider(config: EmailProviderConfig) {
+    switch (config.type) {
+        case 'acs':
+            return new ACSEmailProvider(config.connectionString, config.senderAddress)
+        case 'resend':
+            return new ResendEmailProvider(config.apiKey, config.fromEmail)
+        case 'smtp':
+            return new SMTPEmailProvider({
+                host: config.host,
+                port: config.port,
+                user: config.user,
+                password: config.password,
+                secure: config.secure,
+                fromEmail: config.fromEmail,
+            })
     }
 }
 
-function validateConfig(
-    providerType: string,
-    config: EmailProviderConfig,
-    isEdit = false,
-): string | null {
-    if (providerType === 'acs') {
-        if (!config.connectionString && !isEdit) return 'Connection string is required'
-        if (!config.senderAddress) return 'Sender address is required'
-    } else if (providerType === 'resend') {
-        if (!config.apiKey && !isEdit) return 'API key is required'
-        if (!config.fromEmail) return 'From email is required'
-    } else if (providerType === 'smtp') {
-        if (!config.host) return 'SMTP host is required'
-        if (!config.user && !isEdit) return 'SMTP username is required'
-        if (!config.password && !isEdit) return 'SMTP password is required'
-        if (!config.fromEmail) return 'From email is required'
+function buildConfig(
+    formData: FormData,
+    providerType: EmailProviderType,
+    existing?: EmailProviderConfig,
+): { config: EmailProviderConfig } | { error: string } {
+    switch (providerType) {
+        case 'acs': {
+            const connectionString =
+                (formData.get('connectionString') as string) ||
+                (existing?.type === 'acs' ? existing.connectionString : null)
+            const senderAddress = (formData.get('senderAddress') as string)?.trim() || null
+
+            if (!connectionString) return { error: 'Connection string is required' }
+            if (!senderAddress) return { error: 'Sender address is required' }
+
+            return { config: { type: 'acs', connectionString, senderAddress } }
+        }
+        case 'resend': {
+            const apiKey =
+                (formData.get('apiKey') as string) ||
+                (existing?.type === 'resend' ? existing.apiKey : null)
+            const fromEmail = (formData.get('fromEmail') as string)?.trim() || null
+
+            if (!apiKey) return { error: 'API key is required' }
+            if (!fromEmail) return { error: 'From email is required' }
+
+            return { config: { type: 'resend', apiKey, fromEmail } }
+        }
+        case 'smtp': {
+            const host = (formData.get('host') as string)?.trim() || null
+            const portStr = formData.get('port') as string
+            const port = portStr ? parseInt(portStr, 10) : 587
+            const user =
+                (formData.get('user') as string) ||
+                (existing?.type === 'smtp' ? existing.user : null)
+            const password =
+                (formData.get('password') as string) ||
+                (existing?.type === 'smtp' ? existing.password : null)
+            const secure = formData.get('secure') === 'true'
+            const fromEmail = (formData.get('fromEmail') as string)?.trim() || null
+
+            if (!host) return { error: 'SMTP host is required' }
+            if (!user) return { error: 'SMTP username is required' }
+            if (!password) return { error: 'SMTP password is required' }
+            if (!fromEmail) return { error: 'From email is required' }
+
+            return { config: { type: 'smtp', host, port, user, password, secure, fromEmail } }
+        }
     }
-    return null
 }
