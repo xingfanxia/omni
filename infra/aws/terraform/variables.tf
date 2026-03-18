@@ -126,14 +126,6 @@ variable "log_retention_days" {
   default     = 30
 }
 
-# Application Configuration
-variable "resend_api_key" {
-  description = "Resend API key for emails"
-  type        = string
-  default     = "CONFIGURE_RESEND_API_KEY"
-  sensitive   = true
-}
-
 # AI Service Configuration
 variable "embedding_model" {
   description = "Embedding model name"

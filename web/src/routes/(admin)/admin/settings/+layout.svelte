@@ -3,7 +3,7 @@
     import type { Snippet } from 'svelte'
     import { cn } from '$lib/utils'
     import { page } from '$app/state'
-    import { ArrowLeft, Cable, Users, Shield, Cpu, ArrowUpRight, Bot } from '@lucide/svelte'
+    import { ArrowLeft, Cable, Users, Shield, Cpu, ArrowUpRight, Bot, Mail } from '@lucide/svelte'
     import Button from '$lib/components/ui/button/button.svelte'
     import type { LayoutData } from './$types.js'
 
@@ -97,6 +97,20 @@
                                     <a href="/admin/settings/embeddings" {...props}>
                                         <ArrowUpRight class="h-4 w-4" />
                                         <span>Embedding Providers</span>
+                                    </a>
+                                {/snippet}
+                            </Sidebar.MenuButton>
+                        </Sidebar.MenuItem>
+                        <Sidebar.MenuItem>
+                            <Sidebar.MenuButton
+                                class={cn(
+                                    page.url.pathname === '/admin/settings/email' &&
+                                        'bg-sidebar-accent text-sidebar-accent-foreground',
+                                )}>
+                                {#snippet child({ props })}
+                                    <a href="/admin/settings/email" {...props}>
+                                        <Mail class="h-4 w-4" />
+                                        <span>Email</span>
                                     </a>
                                 {/snippet}
                             </Sidebar.MenuButton>

@@ -113,9 +113,6 @@ resource "aws_ecs_task_definition" "web" {
       { name = "OMNI_DOMAIN", value = var.custom_domain },
       { name = "ORIGIN", value = local.app_url },
       { name = "APP_URL", value = local.app_url },
-      { name = "EMAIL_PROVIDER", value = "resend" },
-      { name = "RESEND_API_KEY", value = var.resend_api_key },
-      { name = "EMAIL_FROM", value = "Omni <noreply@getomni.co>" },
       { name = "AI_ANSWER_ENABLED", value = var.ai_answer_enabled },
       { name = "AGENTS_ENABLED", value = var.agents_enabled }
     ])

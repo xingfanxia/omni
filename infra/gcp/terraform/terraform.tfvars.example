@@ -18,7 +18,6 @@ custom_domain  = "omni.acme-corp.com"
 # cloud_run_min_instances = 0
 # cloud_run_max_instances = 2
 # log_retention_days    = 30
-# resend_api_key        = "re_xxxxxxxxxxxx"
 
 # Optional: AI Service Configuration (embedding provider is configured in the UI)
 # embedding_model         = "jina-embeddings-v3"

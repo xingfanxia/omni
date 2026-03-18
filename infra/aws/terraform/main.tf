@@ -161,8 +161,6 @@ module "compute" {
   encryption_key_arn    = module.secrets.encryption_key_arn
   encryption_salt_arn   = module.secrets.encryption_salt_arn
 
-  resend_api_key    = var.resend_api_key
-
   # AI service configuration
   embedding_model         = var.embedding_model
   embedding_max_model_len = var.embedding_max_model_len

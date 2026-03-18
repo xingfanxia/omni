@@ -55,10 +55,6 @@ output "next_steps" {
        CloudWatch Logs: ${module.monitoring.log_group_name}
        ECS Cluster: ${module.compute.cluster_name}
 
-    🔐 Configure integrations:
-       Update these environment variables in terraform.tfvars:
-       - resend_api_key
-
     ${var.ssl_certificate_arn == "" ? "🔒 Setup HTTPS:\n       1. Request certificate in ACM\n       2. Add ssl_certificate_arn to terraform.tfvars\n       3. Run terraform apply\n       4. Update DNS to point to ALB" : ""}
 
     📚 View logs:

@@ -9,17 +9,3 @@ export interface EmailProvider {
 
     testConnection(): Promise<boolean>
 }
-
-export interface EmailConfig {
-    provider: 'resend' | 'smtp'
-    // Resend config
-    resendApiKey?: string
-    // SMTP config
-    smtpHost?: string
-    smtpPort?: number
-    smtpUser?: string
-    smtpPassword?: string
-    smtpSecure?: boolean
-    // Common config
-    fromEmail: string
-}

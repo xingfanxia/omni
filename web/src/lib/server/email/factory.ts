@@ -1,47 +1,59 @@
-import type { EmailProvider, EmailConfig } from './types'
+import type { EmailProvider } from './types'
 import { ResendEmailProvider } from './providers/resend'
 import { SMTPEmailProvider } from './providers/smtp'
-import { env } from '$env/dynamic/private'
+import { ACSEmailProvider } from './providers/acs'
+import { getCurrentProvider, type EmailProviderConfig } from '../db/email-providers'
 
 let emailProvider: EmailProvider | null = null
+let providerLoaded = false
 
-export function getEmailProvider(): EmailProvider {
-    if (emailProvider) {
+export async function getEmailProvider(): Promise<EmailProvider | null> {
+    if (providerLoaded) {
         return emailProvider
     }
 
-    const config: EmailConfig = {
-        provider: (env.EMAIL_PROVIDER as 'resend' | 'smtp') || 'resend',
-        resendApiKey: env.RESEND_API_KEY || undefined,
-        fromEmail: env.EMAIL_FROM || 'Omni <noreply@yourdomain.com>',
-        smtpHost: env.EMAIL_HOST || undefined,
-        smtpPort: env.EMAIL_PORT ? parseInt(env.EMAIL_PORT) : undefined,
-        smtpUser: env.EMAIL_USER || undefined,
-        smtpPassword: env.EMAIL_PASSWORD || undefined,
-        smtpSecure: env.EMAIL_SECURE === 'true',
+    const dbProvider = await getCurrentProvider()
+
+    if (!dbProvider) {
+        providerLoaded = true
+        return null
     }
 
-    if (config.provider === 'resend') {
-        if (!config.resendApiKey) {
-            throw new Error(
-                'RESEND_API_KEY environment variable is required when using Resend provider',
-            )
+    const config = dbProvider.config as EmailProviderConfig
+    const type = dbProvider.providerType
+
+    if (type === 'acs') {
+        if (!config.connectionString || !config.senderAddress) {
+            providerLoaded = true
+            return null
         }
-        emailProvider = new ResendEmailProvider(config.resendApiKey, config.fromEmail)
-    } else if (config.provider === 'smtp') {
-        if (!config.smtpHost || !config.smtpUser || !config.smtpPassword) {
-            throw new Error(
-                'SMTP configuration (EMAIL_HOST, EMAIL_USER, EMAIL_PASSWORD) is required when using SMTP provider',
-            )
+        emailProvider = new ACSEmailProvider(config.connectionString, config.senderAddress)
+    } else if (type === 'resend') {
+        if (!config.apiKey || !config.fromEmail) {
+            providerLoaded = true
+            return null
         }
-        emailProvider = new SMTPEmailProvider(config)
-    } else {
-        throw new Error(`Unsupported email provider: ${config.provider}`)
+        emailProvider = new ResendEmailProvider(config.apiKey, config.fromEmail)
+    } else if (type === 'smtp') {
+        if (!config.host || !config.user || !config.password || !config.fromEmail) {
+            providerLoaded = true
+            return null
+        }
+        emailProvider = new SMTPEmailProvider({
+            host: config.host,
+            port: config.port || undefined,
+            user: config.user,
+            password: config.password,
+            secure: config.secure || undefined,
+            fromEmail: config.fromEmail,
+        })
     }
 
+    providerLoaded = true
     return emailProvider
 }
 
 export function resetEmailProvider(): void {
     emailProvider = null
+    providerLoaded = false
 }
