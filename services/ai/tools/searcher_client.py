@@ -59,6 +59,26 @@ class SearcherError(httpx.HTTPStatusError):
     pass
 
 
+class PeopleSearchRequest(BaseModel):
+    query: str
+    limit: int = 10
+
+
+class PersonResult(BaseModel):
+    id: str
+    email: str
+    display_name: Optional[str] = None
+    given_name: Optional[str] = None
+    surname: Optional[str] = None
+    job_title: Optional[str] = None
+    department: Optional[str] = None
+    score: float
+
+
+class PeopleSearchResponse(BaseModel):
+    people: list[PersonResult]
+
+
 class SearcherClient:
     """Client for calling omni-searcher service"""
 
@@ -125,6 +145,34 @@ class SearcherClient:
                 )
         except Exception as e:
             logger.error(f"Call to searcher service failed: {e}")
+            raise
+
+    async def search_people(self, request: PeopleSearchRequest) -> PeopleSearchResponse:
+        """Search the people directory using omni-searcher service."""
+        try:
+            logger.info(f"People search with query: {request.query}...")
+            response = await self.client.get(
+                f"{self.searcher_url}/people/search",
+                params={"q": request.query, "limit": request.limit},
+            )
+
+            if response.status_code == 200:
+                result = PeopleSearchResponse.model_validate(response.json())
+                logger.info(f"People search completed: {len(result.people)} results")
+                return result
+            else:
+                logger.error(
+                    f"People search error: {response.status_code} - {response.text}"
+                )
+                raise SearcherError(
+                    message=f"People search failed: {response.status_code} {response.text}",
+                    request=response.request,
+                    response=response,
+                )
+        except SearcherError:
+            raise
+        except Exception as e:
+            logger.error(f"People search failed: {e}")
             raise
 
     async def close(self):

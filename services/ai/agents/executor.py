@@ -34,6 +34,7 @@ from tools import (
     SearchToolHandler,
     ConnectorToolHandler,
     DocumentToolHandler,
+    PeopleSearchHandler,
 )
 from tools.connector_handler import ConnectorAction
 from tools.email_handler import EmailToolHandler
@@ -125,6 +126,9 @@ async def _build_agent_registry(
             search_operators=search_operators,
         )
     )
+
+    # People search tool — always registered
+    registry.register(PeopleSearchHandler(searcher_tool=app_state.searcher_tool))
 
     # Document handler
     content_storage = app_state.content_storage

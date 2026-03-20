@@ -19,6 +19,7 @@ from tools import (
     SearchToolHandler,
     ConnectorToolHandler,
     DocumentToolHandler,
+    PeopleSearchHandler,
 )
 from tools.connector_handler import ConnectorAction
 from tools.sandbox_handler import SandboxToolHandler
@@ -191,6 +192,11 @@ async def _build_registry(request: Request, chat: Chat) -> RegistryResult:
             searcher_tool=request.app.state.searcher_tool,
             search_operators=search_operators,
         )
+    )
+
+    # Register people search tool
+    registry.register(
+        PeopleSearchHandler(searcher_tool=request.app.state.searcher_tool)
     )
 
     # Register document handler (unified read_document tool)
