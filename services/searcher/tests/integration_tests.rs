@@ -8,6 +8,7 @@ use axum::{
 use common::SearcherTestFixture;
 use serde_json::{json, Value};
 use shared::db::repositories::{GroupRepository, PersonRepository, PersonUpsert};
+use shared::models::DocumentPermissions;
 use tower::ServiceExt;
 
 /// Extract result titles from a search response in order.
@@ -999,7 +1000,7 @@ async fn insert_group_test_document(
     external_id: &str,
     title: &str,
     content: &str,
-    permissions: serde_json::Value,
+    permissions: DocumentPermissions,
 ) -> String {
     let doc_id = ulid::Ulid::new().to_string();
     let content_storage = shared::ContentStorage::new(pool.clone());
@@ -1007,6 +1008,7 @@ async fn insert_group_test_document(
         .store_text(content.to_string())
         .await
         .unwrap();
+    let permissions_json = serde_json::to_value(&permissions).unwrap();
 
     sqlx::query(
         r#"
@@ -1020,7 +1022,7 @@ async fn insert_group_test_document(
     .bind(title)
     .bind(&content_id)
     .bind(content)
-    .bind(&permissions)
+    .bind(&permissions_json)
     .execute(pool)
     .await
     .unwrap();
@@ -1039,7 +1041,11 @@ async fn test_search_respects_group_permissions() -> Result<()> {
         "group-doc-1",
         "Secret Engineering Architecture",
         "This is a secret engineering architecture document about microservices",
-        json!({"public": false, "users": [], "groups": ["engineering@example.com"]}),
+        DocumentPermissions {
+            public: false,
+            users: vec![],
+            groups: vec!["engineering@example.com".into()],
+        },
     )
     .await;
 
@@ -1103,7 +1109,11 @@ async fn test_search_domain_wide_access() -> Result<()> {
         "domain-doc-1",
         "Company Wide Quarterly Results Announcement",
         "This document contains company wide quarterly results announcement",
-        json!({"public": false, "users": [], "groups": ["example.com"]}),
+        DocumentPermissions {
+            public: false,
+            users: vec![],
+            groups: vec!["example.com".into()],
+        },
     )
     .await;
 
