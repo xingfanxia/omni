@@ -13,11 +13,13 @@ _COLUMNS = (
     "id, content_id, source_id, external_id, title, content_type, embedding_status"
 )
 
-_PERMISSION_FILTER = """
+
+def _permission_filter(user_email: str) -> str:
+    return f"""
     AND (
-        (permissions->>'public')::boolean IS TRUE
-        OR permissions->'users' ? $2
-        OR permissions->'groups' ? $2
+        permissions @@@ 'public:true'
+        OR permissions @@@ 'users:{user_email}'
+        OR permissions @@@ 'groups:{user_email}'
     )
 """
 
@@ -70,10 +72,9 @@ class DocumentsRepository:
         pool = await self._get_pool()
 
         if user_email:
-            query = (
-                f"SELECT {_COLUMNS} FROM documents WHERE id = $1 {_PERMISSION_FILTER}"
-            )
-            row = await pool.fetchrow(query, document_id, user_email.lower())
+            perm_filter = _permission_filter(user_email.lower())
+            query = f"SELECT {_COLUMNS} FROM documents WHERE id = $1 {perm_filter}"
+            row = await pool.fetchrow(query, document_id)
         else:
             query = f"SELECT {_COLUMNS} FROM documents WHERE id = $1"
             row = await pool.fetchrow(query, document_id)
