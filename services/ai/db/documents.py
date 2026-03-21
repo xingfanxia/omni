@@ -1,6 +1,5 @@
 """Repository for document-related database operations."""
 
-import json
 import logging
 from typing import Optional, List
 from dataclasses import dataclass
@@ -9,6 +8,18 @@ from asyncpg import Pool
 from .connection import get_db_pool
 
 logger = logging.getLogger(__name__)
+
+_COLUMNS = (
+    "id, content_id, source_id, external_id, title, content_type, embedding_status"
+)
+
+_PERMISSION_FILTER = """
+    AND (
+        (permissions->>'public')::boolean IS TRUE
+        OR permissions->'users' ? $2
+        OR permissions->'groups' ? $2
+    )
+"""
 
 
 @dataclass
@@ -22,7 +33,6 @@ class Document:
     title: Optional[str] = None
     content_type: Optional[str] = None
     embedding_status: Optional[str] = None
-    permissions: Optional[dict] = None
 
 
 @dataclass
@@ -47,20 +57,28 @@ class DocumentsRepository:
             return self.pool
         return await get_db_pool()
 
-    async def get_by_id(self, document_id: str) -> Optional[Document]:
-        """Get a document by ID"""
+    async def get_by_id(
+        self, document_id: str, user_email: str | None = None
+    ) -> Optional[Document]:
+        """Get a document by ID.
+
+        When user_email is provided, the query enforces permission checks:
+        the document is returned only if it is public, or the email appears
+        in the document's users or groups list.  This mirrors the searcher's
+        permission filter so the logic lives in one place (the DB query).
+        """
         pool = await self._get_pool()
 
-        row = await pool.fetchrow(
-            "SELECT id, content_id, source_id, external_id, title, content_type, embedding_status, permissions FROM documents WHERE id = $1",
-            document_id,
-        )
+        if user_email:
+            query = (
+                f"SELECT {_COLUMNS} FROM documents WHERE id = $1 {_PERMISSION_FILTER}"
+            )
+            row = await pool.fetchrow(query, document_id, user_email.lower())
+        else:
+            query = f"SELECT {_COLUMNS} FROM documents WHERE id = $1"
+            row = await pool.fetchrow(query, document_id)
 
         if row:
-            raw_perms = row["permissions"]
-            if isinstance(raw_perms, str):
-                raw_perms = json.loads(raw_perms)
-
             return Document(
                 id=row["id"],
                 content_id=row["content_id"],
@@ -69,7 +87,6 @@ class DocumentsRepository:
                 title=row["title"],
                 content_type=row["content_type"],
                 embedding_status=row["embedding_status"],
-                permissions=raw_perms if isinstance(raw_perms, dict) else None,
             )
         return None
 

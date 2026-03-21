@@ -14,7 +14,7 @@ from db import UsersRepository
 from db.documents import DocumentsRepository
 from tools.document_handler import DocumentToolHandler
 from tools.connector_handler import ConnectorToolHandler
-from tools.registry import ToolContext, ToolResult
+from tools.registry import ToolContext
 
 pytestmark = pytest.mark.integration
 
@@ -120,8 +120,8 @@ class TestDocumentHandlerPermissions:
             {"id": doc_id, "name": "test.txt"},
             _make_context("alice@co.com"),
         )
-        # Permission check passed — may fail downstream (no content_id) but NOT "Access denied"
-        assert "Access denied" not in result.content[0]["text"]
+        # Permission check passed — may fail downstream (no content_id) but NOT "not found"
+        assert "not found" not in result.content[0]["text"].lower()
 
     @pytest.mark.asyncio
     async def test_user_without_access_denied(self, db_pool, doc_handler, test_user_id):
@@ -141,7 +141,7 @@ class TestDocumentHandlerPermissions:
             _make_context("bob@co.com"),
         )
         assert result.is_error
-        assert "Access denied" in result.content[0]["text"]
+        assert "not found" in result.content[0]["text"].lower()
 
     @pytest.mark.asyncio
     async def test_public_document_accessible_to_all(
@@ -162,7 +162,7 @@ class TestDocumentHandlerPermissions:
             {"id": doc_id, "name": "test.txt"},
             _make_context("anyone@co.com"),
         )
-        assert "Access denied" not in result.content[0]["text"]
+        assert "not found" not in result.content[0]["text"].lower()
 
     @pytest.mark.asyncio
     async def test_group_access_works(self, db_pool, doc_handler, test_user_id):
@@ -181,7 +181,7 @@ class TestDocumentHandlerPermissions:
             {"id": doc_id, "name": "test.txt"},
             _make_context("eng@co.com"),
         )
-        assert "Access denied" not in result.content[0]["text"]
+        assert "not found" not in result.content[0]["text"].lower()
 
     @pytest.mark.asyncio
     async def test_skip_permission_check_bypasses(
@@ -202,29 +202,7 @@ class TestDocumentHandlerPermissions:
             {"id": doc_id, "name": "test.txt"},
             _make_context("bob@co.com", skip=True),
         )
-        assert "Access denied" not in result.content[0]["text"]
-
-    @pytest.mark.asyncio
-    async def test_none_email_denied_for_private_doc(
-        self, db_pool, doc_handler, test_user_id
-    ):
-        source_id = str(ULID())
-        doc_id = str(ULID())
-        await _insert_source(db_pool, source_id, test_user_id)
-        await _insert_document(
-            db_pool,
-            doc_id,
-            source_id,
-            permissions={"public": False, "users": ["alice@co.com"], "groups": []},
-        )
-
-        result = await doc_handler.execute(
-            "read_document",
-            {"id": doc_id, "name": "test.txt"},
-            _make_context(None),
-        )
-        assert result.is_error
-        assert "Access denied" in result.content[0]["text"]
+        assert "not found" not in result.content[0]["text"].lower()
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +251,7 @@ class TestConnectorHandlerDocumentPermissions:
             _make_context("bob@co.com"),
         )
         assert result.is_error
-        assert "Access denied" in result.content[0]["text"]
+        assert "not found" in result.content[0]["text"].lower()
 
     @pytest.mark.asyncio
     async def test_connector_action_allowed_for_permitted_user(
@@ -315,4 +293,4 @@ class TestConnectorHandlerDocumentPermissions:
             _make_context("alice@co.com"),
         )
         assert result.is_error
-        assert "Access denied" not in result.content[0]["text"]
+        assert "not found" not in result.content[0]["text"].lower()

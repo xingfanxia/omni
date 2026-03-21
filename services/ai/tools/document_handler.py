@@ -10,7 +10,6 @@ import httpx
 
 from db.documents import DocumentsRepository
 from storage import ContentStorage, PostgresContentStorage
-from tools.permissions import check_document_access
 from tools.registry import ToolContext, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -116,28 +115,17 @@ class DocumentToolHandler:
             )
 
         try:
-            # Look up document metadata
-            doc = await self._documents_repo.get_by_id(document_id)
+            # Look up document metadata, applying permission filter when appropriate
+            user_email = None if context.skip_permission_check else context.user_email
+            doc = await self._documents_repo.get_by_id(
+                document_id, user_email=user_email
+            )
             if doc is None:
                 return ToolResult(
                     content=[
                         {
                             "type": "text",
                             "text": f"Document not found: {document_id}",
-                        }
-                    ],
-                    is_error=True,
-                )
-
-            # Check user permission before returning any content
-            if not context.skip_permission_check and not check_document_access(
-                doc.permissions, context.user_email
-            ):
-                return ToolResult(
-                    content=[
-                        {
-                            "type": "text",
-                            "text": f"Access denied: you don't have permission to read '{document_name}'.",
                         }
                     ],
                     is_error=True,

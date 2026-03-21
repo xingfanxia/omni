@@ -11,7 +11,6 @@ import redis.asyncio as aioredis
 
 from db.documents import DocumentsRepository
 from db.models import Source
-from tools.permissions import check_document_access
 from tools.registry import ToolContext, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -285,23 +284,16 @@ class ConnectorToolHandler:
         # If this action references a document, check user permissions
         document_id = tool_input.get("document_id")
         if document_id and self._documents_repo and not context.skip_permission_check:
-            doc = await self._documents_repo.get_by_id(document_id)
+            user_email = context.user_email
+            doc = await self._documents_repo.get_by_id(
+                document_id, user_email=user_email
+            )
             if doc is None:
                 return ToolResult(
                     content=[
                         {
                             "type": "text",
                             "text": f"Document not found: {document_id}",
-                        }
-                    ],
-                    is_error=True,
-                )
-            if not check_document_access(doc.permissions, context.user_email):
-                return ToolResult(
-                    content=[
-                        {
-                            "type": "text",
-                            "text": "Access denied: you don't have permission to access this document.",
                         }
                     ],
                     is_error=True,
