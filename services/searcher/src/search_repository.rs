@@ -1,6 +1,7 @@
 use serde_json::Value as JsonValue;
 use shared::{
     db::error::DatabaseError,
+    db::repositories::document,
     models::{AttributeFilter, DateFilter, Document, Facet, FacetValue},
 };
 use sqlx::{FromRow, PgPool};
@@ -545,7 +546,7 @@ fn rows_to_facets(rows: Vec<(String, String, i64)>) -> Vec<Facet> {
 }
 
 fn generate_permission_filter(user_email: &str, user_groups: &[String]) -> String {
-    shared::db::repositories::document::generate_permission_filter(user_email, user_groups)
+    document::generate_permission_filter(user_email, user_groups)
 }
 
 fn json_value_to_term_string(value: &JsonValue) -> String {
