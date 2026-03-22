@@ -232,7 +232,6 @@ class GraphClient:
             "/groups",
             params={
                 "$select": "id,displayName,mail,mailEnabled,securityEnabled",
-                "$top": "999",
             },
         ):
             groups.append(group)
