@@ -253,5 +253,32 @@ class GitHubClient:
                 return
             cursor = page_info.get("endCursor")
 
+    async def list_collaborators(self, owner: str, repo: str) -> AsyncIterator[Any]:
+        """List collaborators for a repository (effective access from org/teams/direct)."""
+        try:
+            async for collab in self._github.paginate(
+                self._github.rest.repos.async_list_collaborators,
+                owner=owner,
+                repo=repo,
+                per_page=ITEMS_PER_PAGE,
+                map_func=lambda r: r.parsed_data,
+            ):
+                yield collab
+        except RequestFailed as e:
+            raise GitHubError(
+                f"Failed to list collaborators for {owner}/{repo}: {e}"
+            ) from e
+
+    async def get_user_email(self, username: str) -> str | None:
+        """Get a user's public email address. Returns None if not public."""
+        try:
+            resp = await self._github.rest.users.async_get_by_username(
+                username=username
+            )
+            return resp.parsed_data.email
+        except RequestFailed as e:
+            logger.warning("Failed to fetch user %s: %s", username, e)
+            return None
+
     async def close(self) -> None:
         """No-op: githubkit manages its own httpx client lifecycle internally."""
