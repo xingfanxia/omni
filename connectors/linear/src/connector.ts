@@ -25,7 +25,7 @@ import type { LinearSyncState, LinearSourceConfig, LinearCredentials } from './t
 const logger = getLogger('linear');
 const CHECKPOINT_INTERVAL = 100;
 
-export class LinearConnector extends Connector {
+export class LinearConnector extends Connector<LinearSourceConfig, LinearCredentials, LinearSyncState> {
   readonly name = 'linear';
   readonly version = '1.0.0';
 
@@ -54,18 +54,17 @@ export class LinearConnector extends Connector {
   ];
 
   async sync(
-    sourceConfig: Record<string, unknown>,
-    credentials: Record<string, unknown>,
-    state: Record<string, unknown> | null,
+    config: LinearSourceConfig,
+    credentials: LinearCredentials,
+    state: LinearSyncState | null,
     ctx: SyncContext,
   ): Promise<void> {
-    const apiKey = (credentials as unknown as LinearCredentials).api_key;
+    const { api_key: apiKey } = credentials;
     if (!apiKey) {
       await ctx.fail("Missing 'api_key' in credentials");
       return;
     }
 
-    const config = sourceConfig as unknown as LinearSourceConfig;
     const client = new LinearApiClient(apiKey);
 
     try {
@@ -76,8 +75,7 @@ export class LinearConnector extends Connector {
       return;
     }
 
-    const syncState = state as unknown as LinearSyncState | null;
-    const lastSyncAt = syncState?.last_sync_at;
+    const lastSyncAt = state?.last_sync_at;
     const isIncremental = !!lastSyncAt;
     let docsSinceCheckpoint = 0;
 
@@ -244,8 +242,7 @@ export class LinearConnector extends Connector {
         }
       }
 
-      const newState: LinearSyncState = { last_sync_at: new Date().toISOString() };
-      await ctx.complete(newState as unknown as Record<string, unknown>);
+      await ctx.complete({ last_sync_at: new Date().toISOString() });
       logger.info(`Sync completed: ${ctx.documentsScanned} scanned, ${ctx.documentsEmitted} emitted`);
     } catch (e) {
       logger.error({ err: e }, 'Sync failed with unexpected error');
@@ -256,13 +253,13 @@ export class LinearConnector extends Connector {
   async executeAction(
     action: string,
     _params: Record<string, unknown>,
-    credentials: Record<string, unknown>,
+    credentials: LinearCredentials,
   ): Promise<ActionResponse> {
     if (action !== 'list_teams') {
       return createActionResponseNotSupported(action);
     }
 
-    const apiKey = (credentials as unknown as LinearCredentials).api_key;
+    const { api_key: apiKey } = credentials;
     if (!apiKey) {
       return createActionResponseFailure("Missing 'api_key' in credentials");
     }

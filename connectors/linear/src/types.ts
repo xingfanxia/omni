@@ -1,11 +1,11 @@
-export interface LinearSyncState {
+export type LinearSyncState = {
   last_sync_at: string;
-}
+};
 
-export interface LinearSourceConfig {
+export type LinearSourceConfig = {
   team_keys?: string[];
-}
+};
 
-export interface LinearCredentials {
+export type LinearCredentials = {
   api_key: string;
-}
+};

@@ -14,7 +14,11 @@ export interface ServeOptions {
   host?: string;
 }
 
-export abstract class Connector {
+export abstract class Connector<
+  TConfig extends Record<string, unknown> = Record<string, unknown>,
+  TCredentials extends Record<string, unknown> = Record<string, unknown>,
+  TState extends Record<string, unknown> = Record<string, unknown>,
+> {
   abstract readonly name: string;
   abstract readonly version: string;
 
@@ -38,9 +42,9 @@ export abstract class Connector {
   }
 
   abstract sync(
-    sourceConfig: Record<string, unknown>,
-    credentials: Record<string, unknown>,
-    state: Record<string, unknown> | null,
+    sourceConfig: TConfig,
+    credentials: TCredentials,
+    state: TState | null,
     ctx: SyncContext
   ): Promise<void>;
 
@@ -51,7 +55,7 @@ export abstract class Connector {
   executeAction(
     action: string,
     _params: Record<string, unknown>,
-    _credentials: Record<string, unknown>
+    _credentials: TCredentials
   ): Promise<ActionResponse> {
     return Promise.resolve(createActionResponseNotSupported(action));
   }
