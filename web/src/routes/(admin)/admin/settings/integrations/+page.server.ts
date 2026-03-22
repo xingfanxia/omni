@@ -94,6 +94,13 @@ export const load: PageServerLoad = async ({ locals }) => {
                 connected: connectedSources.some((source) => source.sourceType === 'imap'),
                 authType: 'basic_auth',
             },
+            {
+                id: 'clickup',
+                name: 'ClickUp',
+                description: 'Connect to ClickUp tasks and docs',
+                connected: connectedSources.some((source) => source.sourceType === 'clickup'),
+                authType: 'api_key',
+            },
         ],
     }
 }

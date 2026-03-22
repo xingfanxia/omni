@@ -15,6 +15,7 @@
     import hubspotLogo from '$lib/images/icons/hubspot.svg'
     import firefliesLogo from '$lib/images/icons/fireflies.svg'
     import microsoftLogo from '$lib/images/icons/microsoft.svg'
+    import clickupLogo from '$lib/images/icons/clickup.svg'
     import { getSourceIconPath } from '$lib/utils/icons'
     import { Globe, HardDrive, Loader2, Mail } from '@lucide/svelte'
     import { toast } from 'svelte-sonner'
@@ -27,6 +28,7 @@
     import MicrosoftConnectorSetup from '$lib/components/microsoft-connector-setup.svelte'
     import WebConnectorSetupDialog from '$lib/components/web-connector-setup-dialog.svelte'
     import FilesystemConnectorSetupDialog from '$lib/components/filesystem-connector-setup-dialog.svelte'
+    import ClickupConnectorSetup from '$lib/components/clickup-connector-setup.svelte'
     import { SourceType } from '$lib/types'
     import { invalidateAll } from '$app/navigation'
     import { onMount, onDestroy } from 'svelte'
@@ -103,6 +105,7 @@
     let showFirefliesSetup = $state(false)
     let showImapSetup = $state(false)
     let showMicrosoftSetup = $state(false)
+    let showClickupSetup = $state(false)
 
     function handleConnect(integrationId: string) {
         if (integrationId === 'google') {
@@ -123,6 +126,8 @@
             showImapSetup = true
         } else if (integrationId === 'microsoft') {
             showMicrosoftSetup = true
+        } else if (integrationId === 'clickup') {
+            showClickupSetup = true
         }
     }
 
@@ -171,6 +176,11 @@
         window.location.reload()
     }
 
+    function handleClickupSetupSuccess() {
+        showClickupSetup = false
+        window.location.reload()
+    }
+
     function getSourceIcon(sourceType: string) {
         return getSourceIconPath(sourceType)
     }
@@ -189,6 +199,8 @@
                 return firefliesLogo
             case 'microsoft':
                 return microsoftLogo
+            case 'clickup':
+                return clickupLogo
             default:
                 return null
         }
@@ -235,6 +247,8 @@
                 return 'pages'
             case SourceType.LOCAL_FILES:
                 return 'files'
+            case SourceType.CLICKUP:
+                return 'tasks'
             default:
                 return 'documents'
         }
@@ -267,6 +281,8 @@
             case SourceType.OUTLOOK_CALENDAR:
             case SourceType.SHARE_POINT:
                 return `/admin/settings/integrations/microsoft/${sourceId}`
+            case SourceType.CLICKUP:
+                return `/admin/settings/integrations/clickup/${sourceId}`
             default:
                 return '#'
         }
@@ -473,3 +489,8 @@
     bind:open={showMicrosoftSetup}
     onSuccess={handleMicrosoftSetupSuccess}
     onCancel={() => (showMicrosoftSetup = false)} />
+
+<ClickupConnectorSetup
+    bind:open={showClickupSetup}
+    onSuccess={handleClickupSetupSuccess}
+    onCancel={() => (showClickupSetup = false)} />
