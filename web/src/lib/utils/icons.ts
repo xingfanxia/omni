@@ -16,6 +16,7 @@ import microsoftIcon from '$lib/images/icons/microsoft.svg'
 import oneDriveIcon from '$lib/images/icons/onedrive.svg'
 import outlookIcon from '$lib/images/icons/outlook.svg'
 import sharePointIcon from '$lib/images/icons/sharepoint.svg'
+import clickupIcon from '$lib/images/icons/clickup.svg'
 
 // Google Workspace MIME types
 const GOOGLE_DOCS_MIMETYPES = [
@@ -105,6 +106,8 @@ export function getSourceIconPath(sourceType: string): string | null {
             return null // Use fallback FileText icon
         case SourceType.IMAP:
             return null // Uses Mail lucide icon
+        case SourceType.CLICKUP:
+            return clickupIcon
         default:
             return null // Use fallback FileText icon
     }
@@ -210,6 +213,7 @@ export function getSourceDisplayName(sourceType: SourceType) {
         [SourceType.LOCAL_FILES]: 'Files',
         [SourceType.WEB]: 'Web',
         [SourceType.FIREFLIES]: 'Fireflies',
+        [SourceType.CLICKUP]: 'ClickUp',
     }
 
     return sourceDisplayNames[sourceType]
