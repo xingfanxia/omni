@@ -5,7 +5,8 @@ use mock_connector::MockConnector;
 use omni_connector_manager::{
     config::ConnectorManagerConfig, create_app, sync_manager::SyncManager, AppState,
 };
-use redis::Client as RedisClient;
+use redis::{AsyncCommands, Client as RedisClient};
+use shared::models::{ConnectorManifest, SourceType};
 use shared::storage::postgres::PostgresStorage;
 use shared::test_environment::TestEnvironment;
 use shared::ObjectStorage;
@@ -42,6 +43,28 @@ pub async fn setup_test_fixture() -> Result<TestFixture> {
     };
 
     let redis_client = RedisClient::open(config.redis.redis_url.clone())?;
+
+    // Register mock connector in Redis so the manager can find it
+    let manifest = ConnectorManifest {
+        name: "filesystem".to_string(),
+        display_name: "Filesystem".to_string(),
+        version: "1.0.0".to_string(),
+        sync_modes: vec!["full".to_string()],
+        connector_id: "filesystem".to_string(),
+        connector_url: mock_connector.base_url.clone(),
+        source_types: vec![SourceType::LocalFiles],
+        description: None,
+        actions: vec![],
+        search_operators: vec![],
+        read_only: false,
+        extra_schema: None,
+        attributes_schema: None,
+    };
+    let manifest_json = serde_json::to_string(&manifest)?;
+    let mut redis_conn = redis_client.get_multiplexed_async_connection().await?;
+    let _: () = redis_conn
+        .set_ex("connector:manifest:filesystem", &manifest_json, 600)
+        .await?;
 
     let content_storage: Arc<dyn ObjectStorage> =
         Arc::new(PostgresStorage::new(test_env.db_pool.pool().clone()));

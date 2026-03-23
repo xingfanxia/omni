@@ -32,6 +32,8 @@ impl WebConnectorTestFixture {
             "test_master_key_that_is_long_enough_32_chars",
         );
         std::env::set_var("ENCRYPTION_SALT", "test_salt_16_chars");
+        std::env::set_var("CONNECTOR_HOST_NAME", "localhost");
+        std::env::set_var("PORT", "0");
 
         let test_env = TestEnvironment::new().await?;
 
