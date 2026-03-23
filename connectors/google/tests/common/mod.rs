@@ -1,8 +1,10 @@
 use anyhow::Result;
+use axum::{routing::post, Json, Router};
 use omni_connector_manager::{config::ConnectorManagerConfig, create_app, AppState};
 use omni_google_connector::sync::SyncManager;
-use redis::Client as RedisClient;
+use redis::{AsyncCommands, Client as RedisClient};
 use shared::db::repositories::SyncRunRepository;
+use shared::models::{ConnectorManifest, SourceType, SyncResponse};
 use shared::storage::postgres::PostgresStorage;
 use shared::test_environment::TestEnvironment;
 use shared::{ObjectStorage, SdkClient};
@@ -17,6 +19,7 @@ pub struct GoogleConnectorTestFixture {
     pub test_env: TestEnvironment,
     pub sync_manager: Arc<SyncManager>,
     _cm_server_handle: tokio::task::JoinHandle<()>,
+    _mock_connector_handle: tokio::task::JoinHandle<()>,
 }
 
 impl GoogleConnectorTestFixture {
@@ -33,6 +36,25 @@ impl GoogleConnectorTestFixture {
         // Update the seeded source to be a Google Drive source
         seed_google_drive_source(test_env.db_pool.pool()).await?;
 
+        // Start a mock Google connector that accepts /sync requests
+        let mock_connector_app = Router::new().route(
+            "/sync",
+            post(|| async {
+                Json(SyncResponse {
+                    status: "accepted".to_string(),
+                    message: None,
+                })
+            }),
+        );
+        let mock_connector_listener = TcpListener::bind("127.0.0.1:0").await?;
+        let mock_connector_port = mock_connector_listener.local_addr()?.port();
+        let mock_connector_url = format!("http://127.0.0.1:{}", mock_connector_port);
+        let mock_connector_handle = tokio::spawn(async move {
+            axum::serve(mock_connector_listener, mock_connector_app)
+                .await
+                .unwrap();
+        });
+
         // Set up connector-manager server
         let config = ConnectorManagerConfig {
             database: test_env.database_config(),
@@ -48,6 +70,28 @@ impl GoogleConnectorTestFixture {
             Arc::new(PostgresStorage::new(test_env.db_pool.pool().clone()));
 
         let redis_client = redis::Client::open(config.redis.redis_url.clone())?;
+
+        // Register mock connector in Redis so connector manager can find it
+        let manifest = ConnectorManifest {
+            name: "google".to_string(),
+            display_name: "Google".to_string(),
+            version: "1.0.0".to_string(),
+            sync_modes: vec!["full".to_string()],
+            connector_id: "google".to_string(),
+            connector_url: mock_connector_url,
+            source_types: vec![SourceType::GoogleDrive, SourceType::Gmail],
+            description: None,
+            actions: vec![],
+            search_operators: vec![],
+            read_only: false,
+            extra_schema: None,
+            attributes_schema: None,
+        };
+        let manifest_json = serde_json::to_string(&manifest)?;
+        let mut redis_conn = redis_client.get_multiplexed_async_connection().await?;
+        let _: () = redis_conn
+            .set_ex("connector:manifest:google", &manifest_json, 600)
+            .await?;
 
         let cm_sync_manager = Arc::new(omni_connector_manager::sync_manager::SyncManager::new(
             &test_env.db_pool,
@@ -87,6 +131,7 @@ impl GoogleConnectorTestFixture {
             test_env,
             sync_manager,
             _cm_server_handle: cm_server_handle,
+            _mock_connector_handle: mock_connector_handle,
         })
     }
 
