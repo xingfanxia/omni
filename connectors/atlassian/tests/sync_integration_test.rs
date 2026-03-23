@@ -192,7 +192,7 @@ async fn test_confluence_full_sync_creates_events() -> Result<()> {
 
     let creds = test_credentials();
     let count = processor
-        .sync_all_spaces(&creds, SOURCE_ID, &sync_run_id, &cancelled)
+        .sync_all_spaces(&creds, SOURCE_ID, &sync_run_id, &cancelled, &None)
         .await?;
 
     assert_eq!(count, 4, "Should process 4 pages across 2 spaces");
@@ -241,7 +241,14 @@ async fn test_confluence_incremental_sync_uses_cql() -> Result<()> {
     let last_sync = chrono::Utc::now() - chrono::Duration::hours(1);
 
     let count = processor
-        .sync_all_spaces_incremental(&creds, SOURCE_ID, &sync_run_id, last_sync, &cancelled)
+        .sync_all_spaces_incremental(
+            &creds,
+            SOURCE_ID,
+            &sync_run_id,
+            last_sync,
+            &cancelled,
+            &None,
+        )
         .await?;
 
     assert_eq!(count, 1, "Should process 1 modified page");
@@ -293,7 +300,7 @@ async fn test_confluence_version_dedup_skips_unchanged() -> Result<()> {
 
     let creds = test_credentials();
     let count = processor
-        .sync_all_spaces(&creds, SOURCE_ID, &sync_run_id, &cancelled)
+        .sync_all_spaces(&creds, SOURCE_ID, &sync_run_id, &cancelled, &None)
         .await?;
     assert_eq!(count, 2, "First sync should process 2 pages");
 
@@ -307,7 +314,7 @@ async fn test_confluence_version_dedup_skips_unchanged() -> Result<()> {
         .await?;
 
     let count2 = processor
-        .sync_all_spaces(&creds, SOURCE_ID, &sync_run_id2, &cancelled)
+        .sync_all_spaces(&creds, SOURCE_ID, &sync_run_id2, &cancelled, &None)
         .await?;
     assert_eq!(count2, 0, "Second sync should skip unchanged pages");
 
@@ -351,7 +358,7 @@ async fn test_jira_full_sync_creates_events() -> Result<()> {
 
     let creds = test_credentials();
     let count = processor
-        .sync_all_projects(&creds, SOURCE_ID, &sync_run_id, &cancelled)
+        .sync_all_projects(&creds, SOURCE_ID, &sync_run_id, &cancelled, &None)
         .await?;
 
     assert_eq!(count, 3, "Should process 3 issues");

@@ -3,13 +3,15 @@ pub mod mock_atlassian;
 use anyhow::Result;
 use mock_atlassian::MockAtlassianApi;
 use omni_connector_manager::{config::ConnectorManagerConfig, create_app, AppState};
+use redis::AsyncCommands;
 use shared::db::repositories::service_credentials::ServiceCredentialsRepo;
-use shared::models::{AuthType, ServiceCredentials, ServiceProvider, SourceType};
+use shared::models::{
+    AuthType, ConnectorManifest, ServiceCredentials, ServiceProvider, SourceType,
+};
 use shared::storage::postgres::PostgresStorage;
 use shared::test_environment::TestEnvironment;
 use shared::{ObjectStorage, SdkClient};
 use sqlx::PgPool;
-use std::collections::HashMap;
 use std::sync::Arc;
 use time::OffsetDateTime;
 use tokio::net::TcpListener;
@@ -34,27 +36,18 @@ pub async fn setup_test_fixture(source_type: SourceType) -> Result<TestFixture> 
         "test_master_key_that_is_long_enough_32_chars",
     );
     std::env::set_var("ENCRYPTION_SALT", "test_salt_16_chars");
+    std::env::set_var("CONNECTOR_HOST_NAME", "localhost");
+    std::env::set_var("PORT", "0");
 
     let test_env = TestEnvironment::new().await?;
 
     // Seed Atlassian source and credentials
     seed_atlassian_source(test_env.db_pool.pool(), source_type).await?;
 
-    let mut connector_urls = HashMap::new();
-    connector_urls.insert(
-        shared::models::SourceType::Confluence,
-        "http://127.0.0.1:1/atlassian".to_string(),
-    );
-    connector_urls.insert(
-        shared::models::SourceType::Jira,
-        "http://127.0.0.1:1/atlassian".to_string(),
-    );
-
     let config = ConnectorManagerConfig {
         database: test_env.database_config(),
         redis: test_env.redis_config(),
         port: 0,
-        connector_urls,
         max_concurrent_syncs: 2,
         max_concurrent_syncs_per_type: 3,
         scheduler_interval_seconds: 600,
@@ -64,13 +57,41 @@ pub async fn setup_test_fixture(source_type: SourceType) -> Result<TestFixture> 
     let content_storage: Arc<dyn ObjectStorage> =
         Arc::new(PostgresStorage::new(test_env.db_pool.pool().clone()));
 
+    let redis_client = redis::Client::open(config.redis.redis_url.clone())?;
+
+    // Register a dummy connector in Redis so trigger_sync can find it.
+    // The URL is unreachable, but tests that trigger syncs tolerate the connector
+    // call failure — they only verify the sync run gets created.
+    let manifest = ConnectorManifest {
+        name: "atlassian".to_string(),
+        display_name: "Atlassian".to_string(),
+        version: "1.0.0".to_string(),
+        sync_modes: vec!["full".to_string()],
+        connector_id: "atlassian".to_string(),
+        connector_url: "http://127.0.0.1:1".to_string(),
+        source_types: vec![SourceType::Confluence, SourceType::Jira],
+        description: None,
+        actions: vec![],
+        search_operators: vec![],
+        read_only: false,
+        extra_schema: None,
+        attributes_schema: None,
+    };
+    let manifest_json = serde_json::to_string(&manifest)?;
+    let mut redis_conn = redis_client.get_multiplexed_async_connection().await?;
+    let _: () = redis_conn
+        .set_ex("connector:manifest:atlassian", &manifest_json, 600)
+        .await?;
+
     let sync_manager = Arc::new(omni_connector_manager::sync_manager::SyncManager::new(
         &test_env.db_pool,
         config.clone(),
+        redis_client.clone(),
     ));
 
     let app_state = AppState {
         db_pool: test_env.db_pool.clone(),
+        redis_client,
         config,
         sync_manager,
         content_storage,
