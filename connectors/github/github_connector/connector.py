@@ -5,7 +5,7 @@ from typing import Any
 
 from omni_connector import Connector, SearchOperator, SyncContext
 
-from .client import AuthenticationError, GitHubClient, GitHubError
+from .client import AuthenticationError, GitHubClient, GitHubError, GitHubRepo
 from .config import CHECKPOINT_INTERVAL
 from .mappers import (
     generate_discussion_content,
@@ -269,7 +269,7 @@ class GitHubConnector(Connector):
     async def _sync_repo(
         self,
         client: GitHubClient,
-        repo: Any,
+        repo: GitHubRepo,
         owner: str,
         name: str,
         ctx: SyncContext,
@@ -294,7 +294,7 @@ class GitHubConnector(Connector):
     async def _sync_permissions(
         self,
         client: GitHubClient,
-        repos: list[Any],
+        repos: list[GitHubRepo],
         ctx: SyncContext,
     ) -> None:
         """Emit group membership events for private repos based on collaborators."""
@@ -348,9 +348,9 @@ class GitHubConnector(Connector):
         source_config: dict[str, Any],
         username: str,
         include_forks: bool,
-    ) -> list[Any]:
+    ) -> list[GitHubRepo]:
         """Determine which repos to sync based on source_config."""
-        repos: list[Any] = []
+        repos: list[GitHubRepo] = []
         seen: set[str] = set()
 
         explicit_repos = source_config.get("repos", [])
