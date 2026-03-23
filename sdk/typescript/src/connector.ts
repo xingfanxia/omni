@@ -29,6 +29,8 @@ export abstract class Connector<
   readonly syncModes: string[] = ['full'];
   readonly actions: ActionDefinition[] = [];
   readonly searchOperators: SearchOperator[] = [];
+  readonly extraSchema?: Record<string, unknown>;
+  readonly attributesSchema?: Record<string, unknown>;
 
   getManifest(): ConnectorManifest {
     return {
@@ -38,6 +40,8 @@ export abstract class Connector<
       sync_modes: this.syncModes,
       actions: this.actions,
       search_operators: this.searchOperators,
+      extra_schema: this.extraSchema,
+      attributes_schema: this.attributesSchema,
     };
   }
 

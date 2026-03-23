@@ -96,6 +96,8 @@ export const ConnectorManifestSchema = z.object({
   sync_modes: z.array(z.string()),
   actions: z.array(ActionDefinitionSchema).default([]),
   search_operators: z.array(SearchOperatorSchema).default([]),
+  extra_schema: z.record(z.unknown()).optional(),
+  attributes_schema: z.record(z.unknown()).optional(),
 });
 export type ConnectorManifest = z.infer<typeof ConnectorManifestSchema>;
 

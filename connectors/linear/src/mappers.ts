@@ -1,5 +1,6 @@
 import type { Issue, Project, Document as LinearDocument, ProjectUpdate, Comment, Team } from '@linear/sdk';
 import type { Document, DocumentMetadata, DocumentPermissions } from '@getomnico/connector';
+import type { LinearAttributes, LinearExtra } from './types.js';
 
 const GROUP_PREFIX = 'linear-team:';
 
@@ -41,19 +42,17 @@ export async function mapIssueToDocument(
 
   const labels = issueLabels.nodes.map(l => l.name);
 
-  const attributes: Record<string, unknown> = {
-    source_type: 'linear',
-    status: state?.name ?? '',
-    priority: issue.priorityLabel ?? '',
-    labels: labels.join(','),
-    assignee: assignee?.displayName ?? '',
-    assignee_email: assignee?.email ?? '',
-    team: team?.name ?? '',
+  const attributes: LinearAttributes = {
+
+    status: state?.name ?? null,
+    priority: issue.priorityLabel ?? null,
+    labels: labels.length > 0 ? labels.join(',') : null,
+    assignee: assignee?.displayName ?? null,
+    assignee_email: assignee?.email ?? null,
+    team: team?.name ?? null,
     identifier: issue.identifier,
+    project_name: project?.name ?? null,
   };
-  if (project) {
-    attributes.project_name = project.name;
-  }
 
   const pathParts = [team?.name, project?.name, issue.identifier].filter(Boolean);
 
@@ -67,10 +66,10 @@ export async function mapIssueToDocument(
     path: pathParts.join(' / '),
     extra: {
       linear: {
-        team_id: team?.id,
-        project_id: project?.id,
+        team_id: team?.id ?? null,
+        project_id: project?.id ?? null,
       },
-    },
+    } satisfies LinearExtra,
   };
 
   return {
@@ -139,16 +138,11 @@ export async function mapProjectToDocument(
   const lead = await project.lead;
   const creator = await project.creator;
 
-  let latestHealth = '';
-  if (recentUpdates.length > 0) {
-    latestHealth = recentUpdates[0]!.health ?? '';
-  }
+  const attributes: LinearAttributes = {
 
-  const attributes: Record<string, unknown> = {
-    source_type: 'linear',
-    status: project.state ?? '',
-    health: latestHealth,
-    lead: lead?.displayName ?? '',
+    status: project.state ?? null,
+    health: recentUpdates.length > 0 ? (recentUpdates[0]!.health ?? null) : null,
+    lead: lead?.displayName ?? null,
   };
 
   const metadata: DocumentMetadata = {
@@ -220,12 +214,10 @@ export async function mapLinearDocumentToDocument(
   const creator = await doc.creator;
   const project = await doc.project;
 
-  const attributes: Record<string, unknown> = {
-    source_type: 'linear',
+  const attributes: LinearAttributes = {
+
+    project_name: project?.name ?? null,
   };
-  if (project) {
-    attributes.project_name = project.name;
-  }
 
   const pathParts = ['Documents', project?.name, doc.title].filter(Boolean);
 
@@ -275,9 +267,9 @@ export async function mapProjectUpdateToDocument(
   const project = await update.project;
   const dateStr = update.createdAt.toISOString().split('T')[0];
 
-  const attributes: Record<string, unknown> = {
-    source_type: 'linear',
-    health: update.health ?? '',
+  const attributes: LinearAttributes = {
+
+    health: update.health ?? null,
     project_name: projectName,
   };
 

@@ -53,6 +53,35 @@ export class LinearConnector extends Connector<LinearSourceConfig, LinearCredent
     { operator: 'project', attribute_key: 'project_name', value_type: 'text' },
   ];
 
+  readonly extraSchema = {
+    type: 'object',
+    properties: {
+      linear: {
+        type: 'object',
+        properties: {
+          team_id: { type: 'string' },
+          project_id: { type: 'string' },
+        },
+      },
+    },
+  };
+
+  readonly attributesSchema = {
+    type: 'object',
+    properties: {
+      status: { type: 'string' },
+      priority: { type: 'string' },
+      labels: { type: 'string' },
+      assignee: { type: 'string' },
+      assignee_email: { type: 'string', format: 'email' },
+      team: { type: 'string' },
+      identifier: { type: 'string' },
+      project_name: { type: 'string' },
+      health: { type: 'string' },
+      lead: { type: 'string' },
+    },
+  };
+
   async sync(
     config: LinearSourceConfig,
     credentials: LinearCredentials,
