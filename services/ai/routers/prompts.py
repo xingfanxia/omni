@@ -1,20 +1,11 @@
-"""Prompt and PDF extraction endpoints."""
+"""Prompt endpoints."""
 
-import asyncio
 import logging
-import multiprocessing
-from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from schemas import PromptRequest, PromptResponse
-from processing import (
-    PDFExtractionRequest,
-    PDFExtractionResponse,
-    extract_text_from_pdf,
-)
-
 from providers import LLMProvider
 
 logger = logging.getLogger(__name__)
@@ -30,12 +21,6 @@ def _get_default_llm_provider(request: Request) -> LLMProvider | None:
     if default_id and default_id in models:
         return models[default_id]
     return next(iter(models.values()), None)
-
-
-# Thread pool for async operations - scale based on CPU cores
-# Reserve some cores for the web server and other processes
-max_workers = max(2, min(multiprocessing.cpu_count() - 1, 8))
-_executor = ThreadPoolExecutor(max_workers=max_workers)
 
 
 @router.post("/prompt")
@@ -101,24 +86,3 @@ async def _generate_non_streaming_response(
         raise HTTPException(
             status_code=500, detail=f"Failed to generate response: {str(e)}"
         )
-
-
-@router.post("/extract_pdf", response_model=PDFExtractionResponse)
-async def extract_pdf(body: PDFExtractionRequest):
-    """Extract text from a PDF file."""
-    logger.info(f"Extracting text from PDF ({len(body.pdf_bytes)} bytes)")
-
-    # Run PDF extraction in executor to avoid blocking
-    loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(
-        _executor, extract_text_from_pdf, body.pdf_bytes
-    )
-
-    if result.error:
-        logger.warning(f"PDF extraction completed with error: {result.error}")
-    else:
-        logger.info(
-            f"PDF extraction successful: {result.page_count} pages, {len(result.text)} characters"
-        )
-
-    return result

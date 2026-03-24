@@ -12,7 +12,7 @@ use tracing::{debug, error, info, warn};
 use crate::admin::AdminClient;
 use crate::auth::{GoogleAuth, OAuthAuth, ServiceAccountAuth};
 use crate::cache::LruFolderCache;
-use crate::drive::DriveClient;
+use crate::drive::{DriveClient, FileContent};
 use crate::gmail::{GmailClient, MessageFormat};
 use crate::models::{
     GmailThread, GoogleConnectorState, SyncRequest, UserFile, WebhookChannel,
@@ -21,8 +21,8 @@ use crate::models::{
 use shared::models::{
     AuthType, ConnectorEvent, ServiceCredentials, ServiceProvider, Source, SourceType, SyncType,
 };
+use shared::RateLimiter;
 use shared::SdkClient;
-use shared::{AIClient, RateLimiter};
 
 struct ActiveSync {
     cancelled: AtomicBool,
@@ -218,8 +218,7 @@ impl SyncManager {
             .unwrap_or(5);
 
         let rate_limiter = Arc::new(RateLimiter::new(api_rate_limit, max_retries));
-        let ai_client = AIClient::new(ai_service_url);
-        let drive_client = DriveClient::with_rate_limiter(rate_limiter.clone(), ai_client.clone());
+        let drive_client = DriveClient::with_rate_limiter(rate_limiter.clone());
         let gmail_client = GmailClient::with_rate_limiter(rate_limiter);
 
         Self {
@@ -675,73 +674,118 @@ impl SyncManager {
             let sdk_client = self.sdk_client.clone();
 
             async move {
-                debug!("Processing file: {} ({}) for user: {}", user_file.file.name, user_file.file.id, user_file.user_email);
+                debug!(
+                    "Processing file: {} ({}) for user: {}",
+                    user_file.file.name, user_file.file.id, user_file.user_email
+                );
 
                 // Use rate limiter for file content download
                 let result = drive_client
                     .get_file_content(&service_auth, &user_file.user_email, &user_file.file)
                     .await
-                    .with_context(|| format!("Getting content for file {} ({})", user_file.file.name, user_file.file.id));
+                    .with_context(|| {
+                        format!(
+                            "Getting content for file {} ({})",
+                            user_file.file.name, user_file.file.id
+                        )
+                    });
 
                 match result {
-                    Ok(content) => {
-                        if !content.is_empty() {
-                            match sdk_client.store_content(&sync_run_id, &content).await {
-                                Ok(content_id) => {
-                                    // Resolve the full path for this file
-                                    let file_path = match self
-                                        .resolve_file_path(
-                                            &service_auth,
-                                            &user_file.user_email,
-                                            &user_file.file,
-                                        )
-                                        .await
-                                    {
-                                        Ok(path) => Some(path),
-                                        Err(e) => {
-                                            warn!("Failed to resolve path for file {}: {}", user_file.file.name, e);
-                                            Some(format!("/{}", user_file.file.name))
-                                        }
-                                    };
-
-                                    let event = user_file.file.to_connector_event(
+                    Ok(file_content) => {
+                        let store_result = match file_content {
+                            FileContent::Text(ref text) if text.is_empty() => {
+                                debug!("File {} has empty content, skipping", user_file.file.name);
+                                return (1, 0);
+                            }
+                            FileContent::Text(text) => {
+                                sdk_client.store_content(&sync_run_id, &text).await
+                            }
+                            FileContent::Binary {
+                                data,
+                                mime_type,
+                                filename,
+                            } => {
+                                sdk_client
+                                    .extract_and_store_content(
                                         &sync_run_id,
-                                        &source_id,
-                                        &content_id,
-                                        file_path,
-                                    );
+                                        data,
+                                        &mime_type,
+                                        Some(&filename),
+                                    )
+                                    .await
+                            }
+                        };
+                        match store_result {
+                            Ok(content_id) => {
+                                // Resolve the full path for this file
+                                let file_path = match self
+                                    .resolve_file_path(
+                                        &service_auth,
+                                        &user_file.user_email,
+                                        &user_file.file,
+                                    )
+                                    .await
+                                {
+                                    Ok(path) => Some(path),
+                                    Err(e) => {
+                                        warn!(
+                                            "Failed to resolve path for file {}: {}",
+                                            user_file.file.name, e
+                                        );
+                                        Some(format!("/{}", user_file.file.name))
+                                    }
+                                };
 
-                                    match sdk_client.emit_event(&sync_run_id, &source_id, event).await {
-                                        Ok(_) => {
-                                            if let Some(modified_time) = &user_file.file.modified_time {
-                                                if let Err(e) = sync_state
-                                                    .set_file_sync_state(&source_id, &user_file.file.id, modified_time)
-                                                    .await
-                                                {
-                                                    error!("Failed to update sync state for file {}: {:?}", user_file.file.name, e);
-                                                    return (1, 0); // Processed but not updated
-                                                }
+                                let event = user_file.file.to_connector_event(
+                                    &sync_run_id,
+                                    &source_id,
+                                    &content_id,
+                                    file_path,
+                                );
+
+                                match sdk_client.emit_event(&sync_run_id, &source_id, event).await {
+                                    Ok(_) => {
+                                        if let Some(modified_time) = &user_file.file.modified_time {
+                                            if let Err(e) = sync_state
+                                                .set_file_sync_state(
+                                                    &source_id,
+                                                    &user_file.file.id,
+                                                    modified_time,
+                                                )
+                                                .await
+                                            {
+                                                error!(
+                                                    "Failed to update sync state for file {}: {:?}",
+                                                    user_file.file.name, e
+                                                );
+                                                return (1, 0); // Processed but not updated
                                             }
-                                            (1, 1) // Processed and updated
                                         }
-                                        Err(e) => {
-                                            error!("Failed to queue event for file {}: {:?}", user_file.file.name, e);
-                                            (1, 0) // Processed but failed
-                                        }
+                                        (1, 1) // Processed and updated
+                                    }
+                                    Err(e) => {
+                                        error!(
+                                            "Failed to queue event for file {}: {:?}",
+                                            user_file.file.name, e
+                                        );
+                                        (1, 0) // Processed but failed
                                     }
                                 }
-                                Err(e) => {
-                                    error!("Failed to store content for file {}: {}", user_file.file.name, e);
-                                    (1, 0) // Processed but failed
-                                }
                             }
-                        } else {
-                            debug!("File {} has empty content, skipping", user_file.file.name);
-                            (1, 0) // Processed but skipped
+                            Err(e) => {
+                                error!(
+                                    "Failed to store content for file {}: {}",
+                                    user_file.file.name, e
+                                );
+                                (1, 0) // Processed but failed
+                            }
                         }
                     }
                     Err(e) => {
-                        warn!("Failed to get content for file {} ({}): {:?}", user_file.file.name, user_file.file.id, e);
+                        warn!(
+                            "Failed to get content for file {} ({}): {:?}",
+                            user_file.file.name, user_file.file.id, e
+                        );
                         (1, 0) // Processed but failed
                     }
                 }

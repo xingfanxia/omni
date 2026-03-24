@@ -97,6 +97,12 @@ impl SdkClient {
         Ok(Self::new(&url))
     }
 
+    /// Extract text content from raw file bytes based on MIME type.
+    /// This is a local operation — no HTTP call to the connector manager.
+    pub fn extract_content(data: &[u8], mime_type: &str, filename: Option<&str>) -> Result<String> {
+        crate::content_extractor::extract_content(data, mime_type, filename)
+    }
+
     /// Emit a document event to the queue
     pub async fn emit_event(
         &self,
@@ -127,6 +133,58 @@ impl SdkClient {
         }
 
         Ok(())
+    }
+
+    /// Extract text from binary file content and store it, returning content_id.
+    ///
+    /// The connector manager extracts text based on the MIME type (PDF, DOCX,
+    /// XLSX, PPTX, HTML, etc.) and stores the result. When the MIME type is
+    /// `application/octet-stream`, the optional filename is used to infer
+    /// the actual format.
+    pub async fn extract_and_store_content(
+        &self,
+        sync_run_id: &str,
+        data: Vec<u8>,
+        mime_type: &str,
+        filename: Option<&str>,
+    ) -> Result<String> {
+        debug!(
+            "SDK: Extracting content for sync_run={}, mime={}, size={}",
+            sync_run_id,
+            mime_type,
+            data.len()
+        );
+
+        let form = reqwest::multipart::Form::new()
+            .text("sync_run_id", sync_run_id.to_string())
+            .text("mime_type", mime_type.to_string())
+            .part(
+                "data",
+                reqwest::multipart::Part::bytes(data).file_name("file"),
+            );
+
+        let form = if let Some(name) = filename {
+            form.text("filename", name.to_string())
+        } else {
+            form
+        };
+
+        let response = self
+            .client
+            .post(format!("{}/sdk/extract-content", self.base_url))
+            .multipart(form)
+            .send()
+            .await
+            .context("Failed to send extract content request")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("Failed to extract content: {} - {}", status, body);
+        }
+
+        let result: StoreContentResponse = response.json().await?;
+        Ok(result.content_id)
     }
 
     /// Store content and return content_id
