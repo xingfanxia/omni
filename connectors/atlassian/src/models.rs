@@ -136,7 +136,7 @@ pub struct ConfluencePage {
     #[serde(rename = "lastOwnerId")]
     pub last_owner_id: Option<String>,
     pub subtype: Option<String>,
-    #[serde(rename = "createdAt", with = "time::serde::iso8601")]
+    #[serde(rename = "createdAt", with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
     pub version: ConfluenceVersion,
     pub body: Option<ConfluencePageBody>,
@@ -154,7 +154,7 @@ pub struct ConfluenceSpace {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfluenceVersion {
-    #[serde(rename = "createdAt", with = "time::serde::iso8601")]
+    #[serde(rename = "createdAt", with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
     pub message: String,
     pub number: i32,

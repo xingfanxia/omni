@@ -248,9 +248,9 @@ pub struct JiraSourceConfig {
 pub struct DocumentMetadata {
     pub title: Option<String>,
     pub author: Option<String>,
-    #[serde(default, with = "time::serde::iso8601::option")]
+    #[serde(default, with = "time::serde::rfc3339::option")]
     pub created_at: Option<OffsetDateTime>,
-    #[serde(default, with = "time::serde::iso8601::option")]
+    #[serde(default, with = "time::serde::rfc3339::option")]
     pub updated_at: Option<OffsetDateTime>,
     pub content_type: Option<String>,
     pub mime_type: Option<String>,
