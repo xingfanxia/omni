@@ -352,6 +352,14 @@ impl SuggestedQuestionsGenerator {
 
         let question = question.trim().to_string();
 
+        if question.starts_with("Error:") {
+            warn!(
+                "AI service returned an error response for document {}: {}",
+                document_id, question
+            );
+            return Err(anyhow!("AI service returned error response"));
+        }
+
         if question.is_empty() {
             warn!(
                 "AI service returned empty question for document {}",
