@@ -709,7 +709,6 @@ pub async fn sdk_extract_content(
                 String::new()
             });
 
-    let content_storage = state.content_storage.clone();
     let today = time::OffsetDateTime::now_utc();
     let prefix = format!(
         "{:04}-{:02}-{:02}/{}",
@@ -720,7 +719,8 @@ pub async fn sdk_extract_content(
     );
 
     let content = utils::normalize_whitespace(&extracted_text);
-    let content_id = content_storage
+    let content_id = state
+        .content_storage
         .store_text(&content, Some(&prefix))
         .await
         .map_err(|e| ApiError::Internal(format!("Failed to store content: {}", e)))?;
