@@ -802,7 +802,7 @@ resource "aws_ecs_task_definition" "linear_connector" {
     essential = true
 
     portMappings = [{
-      containerPort = 4011
+      containerPort = 4012
       protocol      = "tcp"
     }]
 
@@ -816,7 +816,7 @@ resource "aws_ecs_task_definition" "linear_connector" {
     }
 
     environment = concat(local.connector_base_environment, [
-      { name = "PORT", value = "4011" },
+      { name = "PORT", value = "4012" },
       { name = "CONNECTOR_HOST_NAME", value = "linear-connector" }
     ])
 
@@ -846,7 +846,7 @@ resource "aws_ecs_task_definition" "clickup_connector" {
     essential = true
 
     portMappings = [{
-      containerPort = 4012
+      containerPort = 4011
       protocol      = "tcp"
     }]
 
@@ -860,7 +860,7 @@ resource "aws_ecs_task_definition" "clickup_connector" {
     }
 
     environment = concat(local.connector_base_environment, [
-      { name = "PORT", value = "4012" },
+      { name = "PORT", value = "4011" },
       { name = "CONNECTOR_HOST_NAME", value = "clickup-connector" }
     ])
 
@@ -869,5 +869,49 @@ resource "aws_ecs_task_definition" "clickup_connector" {
 
   tags = merge(local.common_tags, {
     Name = "omni-${var.customer_name}-clickup-connector"
+  })
+}
+
+# Filesystem Connector Task Definition
+resource "aws_ecs_task_definition" "filesystem_connector" {
+  count = contains(var.enabled_connectors, "filesystem") ? 1 : 0
+
+  family                   = "omni-${var.customer_name}-filesystem-connector"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = var.task_cpu
+  memory                   = var.task_memory
+  execution_role_arn       = aws_iam_role.ecs_task_execution.arn
+  task_role_arn            = aws_iam_role.ecs_task.arn
+
+  container_definitions = jsonencode([{
+    name      = "omni-filesystem-connector"
+    image     = "ghcr.io/${var.github_org}/omni/omni-filesystem-connector:latest"
+    essential = true
+
+    portMappings = [{
+      containerPort = 4013
+      protocol      = "tcp"
+    }]
+
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        "awslogs-group"         = var.log_group_name
+        "awslogs-region"        = var.region
+        "awslogs-stream-prefix" = "filesystem-connector"
+      }
+    }
+
+    environment = concat(local.connector_base_environment, [
+      { name = "PORT", value = "4013" },
+      { name = "CONNECTOR_HOST_NAME", value = "filesystem-connector" }
+    ])
+
+    secrets = []
+  }])
+
+  tags = merge(local.common_tags, {
+    Name = "omni-${var.customer_name}-filesystem-connector"
   })
 }

@@ -112,3 +112,8 @@ output "clickup_connector_service_name" {
   description = "ClickUp connector service name"
   value       = try(aws_ecs_service.clickup_connector[0].name, null)
 }
+
+output "filesystem_connector_service_name" {
+  description = "Filesystem connector service name"
+  value       = try(aws_ecs_service.filesystem_connector[0].name, null)
+}

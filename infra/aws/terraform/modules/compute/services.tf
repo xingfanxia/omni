@@ -452,3 +452,30 @@ resource "aws_ecs_service" "clickup_connector" {
     Name = "omni-${var.customer_name}-clickup-connector"
   })
 }
+
+# Filesystem Connector Service
+resource "aws_ecs_service" "filesystem_connector" {
+  count = contains(var.enabled_connectors, "filesystem") ? 1 : 0
+
+  name            = "omni-${var.customer_name}-filesystem-connector"
+  cluster         = var.cluster_arn
+  task_definition = aws_ecs_task_definition.filesystem_connector[0].arn
+  launch_type     = "FARGATE"
+  desired_count   = var.desired_count
+
+  enable_execute_command = true
+
+  network_configuration {
+    security_groups  = [var.security_group_id]
+    subnets          = var.subnet_ids
+    assign_public_ip = false
+  }
+
+  service_registries {
+    registry_arn = aws_service_discovery_service.filesystem_connector[0].arn
+  }
+
+  tags = merge(local.common_tags, {
+    Name = "omni-${var.customer_name}-filesystem-connector"
+  })
+}

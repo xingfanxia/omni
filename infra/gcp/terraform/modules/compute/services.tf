@@ -9,7 +9,7 @@ locals {
     "web", "searcher", "indexer", "ai", "connector-mgr",
     "google-conn", "slack-conn", "atlassian-conn", "web-conn",
     "github-conn", "hubspot-conn", "microsoft-conn", "notion-conn", "fireflies-conn",
-    "imap-conn", "linear-conn", "clickup-conn",
+    "imap-conn", "clickup-conn", "linear-conn", "filesystem-conn",
   ] : name => "https://omni-${var.customer_name}-${name}-${local.project_number}.${var.region}.run.app" }
 
   db_env = {
@@ -46,15 +46,16 @@ locals {
 
   # Connectors with only basic env vars (CONNECTOR_MANAGER_URL, PORT, RUST_LOG)
   all_simple_connectors = {
-    slack     = { port = 4002, image = "omni-slack-connector" }
-    github    = { port = 4005, image = "omni-github-connector" }
-    hubspot   = { port = 4006, image = "omni-hubspot-connector" }
-    microsoft = { port = 4007, image = "omni-microsoft-connector" }
-    notion    = { port = 4008, image = "omni-notion-connector" }
-    fireflies = { port = 4009, image = "omni-fireflies-connector" }
-    imap      = { port = 4010, image = "omni-imap-connector" }
-    linear    = { port = 4011, image = "omni-linear-connector" }
-    clickup   = { port = 4012, image = "omni-clickup-connector" }
+    slack      = { port = 4002, image = "omni-slack-connector" }
+    github     = { port = 4005, image = "omni-github-connector" }
+    hubspot    = { port = 4006, image = "omni-hubspot-connector" }
+    microsoft  = { port = 4007, image = "omni-microsoft-connector" }
+    notion     = { port = 4008, image = "omni-notion-connector" }
+    fireflies  = { port = 4009, image = "omni-fireflies-connector" }
+    imap       = { port = 4010, image = "omni-imap-connector" }
+    clickup    = { port = 4011, image = "omni-clickup-connector" }
+    linear     = { port = 4012, image = "omni-linear-connector" }
+    filesystem = { port = 4013, image = "omni-filesystem-connector" }
   }
 
   simple_connectors = { for k, v in local.all_simple_connectors : k => v if contains(var.enabled_connectors, k) }
