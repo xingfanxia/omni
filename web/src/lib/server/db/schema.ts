@@ -149,6 +149,7 @@ export const models = pgTable('models', {
     modelId: text('model_id').notNull(),
     displayName: text('display_name').notNull(),
     isDefault: boolean('is_default').notNull().default(false),
+    isSecondary: boolean('is_secondary').notNull().default(false),
     isDeleted: boolean('is_deleted').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),

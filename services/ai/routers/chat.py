@@ -85,6 +85,24 @@ def _resolve_llm_provider(state: AppState, chat: Chat) -> LLMProvider:
     return next(iter(models.values()))
 
 
+def _resolve_secondary_provider(state: AppState) -> LLMProvider:
+    """Resolve the secondary (lightweight) model provider.
+    Priority: secondary model -> default model -> first available.
+    Used for title generation, suggested questions, compaction, etc.
+    """
+    models = state.models
+    if not models:
+        raise HTTPException(status_code=503, detail="No models configured")
+
+    if state.secondary_model_id and state.secondary_model_id in models:
+        return models[state.secondary_model_id]
+
+    if state.default_model_id and state.default_model_id in models:
+        return models[state.default_model_id]
+
+    return next(iter(models.values()))
+
+
 def convert_citation_to_param(citation_delta: CitationsDelta) -> TextCitationParam:
     citation = citation_delta.citation
     if citation.type == "char_location":
@@ -336,9 +354,10 @@ async def stream_chat(
         MessageParam(**msg.message) for msg in chat_messages
     ]
 
-    # Check if conversation needs compaction
+    # Check if conversation needs compaction — use secondary model for summarization
+    secondary_provider = _resolve_secondary_provider(request.app.state)
     compactor = ConversationCompactor(
-        llm_provider=llm_provider,
+        llm_provider=secondary_provider,
         redis_client=redis_client,
     )
     if compactor.needs_compaction(messages, all_tools):
@@ -678,7 +697,7 @@ async def generate_chat_title(
         if not chat:
             raise HTTPException(status_code=404, detail="Chat thread not found")
 
-        llm_provider = _resolve_llm_provider(request.app.state, chat)
+        llm_provider = _resolve_secondary_provider(request.app.state)
 
         # Check if title already exists
         if chat.title:

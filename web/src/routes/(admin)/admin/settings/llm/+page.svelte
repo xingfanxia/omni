@@ -7,7 +7,17 @@
     import * as Alert from '$lib/components/ui/alert'
     import * as AlertDialog from '$lib/components/ui/alert-dialog'
     import * as Dialog from '$lib/components/ui/dialog'
-    import { CheckCircle2, Loader2, Info, Pencil, Trash2, Star, Server, Plus } from '@lucide/svelte'
+    import {
+        CheckCircle2,
+        Loader2,
+        Info,
+        Pencil,
+        Trash2,
+        Star,
+        Zap,
+        Server,
+        Plus,
+    } from '@lucide/svelte'
     import { cn } from '$lib/utils'
     import { toast } from 'svelte-sonner'
     import type { PageData } from './$types'
@@ -44,6 +54,7 @@
         modelId: string
         displayName: string
         isDefault: boolean
+        isSecondary: boolean
     }
 
     const emptyProviderForm: ProviderFormState = {
@@ -60,6 +71,7 @@
         modelId: '',
         displayName: '',
         isDefault: false,
+        isSecondary: false,
     }
 
     let dialogOpen = $state(false)
@@ -266,11 +278,38 @@
                                                         </button>
                                                     </form>
                                                 {/if}
+                                                {#if model.isSecondary}
+                                                    <Zap
+                                                        class="h-3.5 w-3.5 fill-blue-400 text-blue-400" />
+                                                {:else}
+                                                    <form
+                                                        method="POST"
+                                                        action="?/setSecondaryModel"
+                                                        use:enhance={enhanceWithToast}>
+                                                        <input
+                                                            type="hidden"
+                                                            name="id"
+                                                            value={model.id} />
+                                                        <button
+                                                            type="submit"
+                                                            class="cursor-pointer"
+                                                            title="Set as secondary (lightweight) model">
+                                                            <Zap
+                                                                class="text-muted-foreground h-3.5 w-3.5 hover:text-blue-400" />
+                                                        </button>
+                                                    </form>
+                                                {/if}
                                                 <span>{model.displayName}</span>
                                                 {#if model.isDefault}
                                                     <span
                                                         class="bg-primary/10 text-primary rounded-full px-1.5 py-0.5 text-xs">
                                                         Default
+                                                    </span>
+                                                {/if}
+                                                {#if model.isSecondary}
+                                                    <span
+                                                        class="rounded-full bg-blue-500/10 px-1.5 py-0.5 text-xs text-blue-600">
+                                                        Secondary
                                                     </span>
                                                 {/if}
                                             </div>
@@ -604,6 +643,23 @@
                                 (modelFormState.isDefault = (e.target as HTMLInputElement).checked)}
                             class="h-4 w-4" />
                         <Label for="isDefaultModel" class="font-normal">Set as default model</Label>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <input
+                            type="checkbox"
+                            id="isSecondaryModel"
+                            name="isSecondary"
+                            value="true"
+                            checked={modelFormState.isSecondary}
+                            onchange={(e) =>
+                                (modelFormState.isSecondary = (
+                                    e.target as HTMLInputElement
+                                ).checked)}
+                            class="h-4 w-4" />
+                        <Label for="isSecondaryModel" class="font-normal">
+                            Set as secondary (lightweight) model
+                        </Label>
                     </div>
 
                     <Dialog.Footer>

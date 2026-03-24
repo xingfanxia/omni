@@ -46,7 +46,6 @@ def _create_provider_from_model_record(record: ModelRecord) -> LLMProvider:
         return create_llm_provider(
             "bedrock",
             model_id=model_id,
-            secondary_model_id=model_id,
             region_name=region_name,
         )
 
@@ -90,6 +89,7 @@ async def load_models(app_state: AppState) -> None:
 
     models: dict[str, LLMProvider] = {}
     default_id: str | None = None
+    secondary_id: str | None = None
 
     for record in records:
         try:
@@ -100,6 +100,8 @@ async def load_models(app_state: AppState) -> None:
             )
             if record.is_default:
                 default_id = record.id
+            if record.is_secondary:
+                secondary_id = record.id
         except Exception as e:
             logger.error(
                 f"Failed to initialize model '{record.display_name}' (id={record.id}): {e}"
@@ -107,13 +109,16 @@ async def load_models(app_state: AppState) -> None:
 
     app_state.models = models
     app_state.default_model_id = default_id
+    app_state.secondary_model_id = secondary_id
 
     if not models:
         logger.warning(
             "No models configured — chat will be unavailable until models are added"
         )
     else:
-        logger.info(f"Loaded {len(models)} model(s), default={default_id}")
+        logger.info(
+            f"Loaded {len(models)} model(s), default={default_id}, secondary={secondary_id}"
+        )
 
 
 async def _init_embedding_provider(app_state: AppState) -> None:

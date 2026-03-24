@@ -11,6 +11,7 @@ import {
     createModel,
     deleteModel,
     setDefaultModel,
+    setSecondaryModel,
     createPredefinedModels,
     MODEL_PROVIDER_TYPES,
     type ModelProviderConfig,
@@ -50,6 +51,7 @@ export const load: PageServerLoad = async ({ locals }) => {
                     modelId: m.modelId,
                     displayName: m.displayName,
                     isDefault: m.isDefault,
+                    isSecondary: m.isSecondary,
                 })),
             }
         }),
@@ -146,6 +148,7 @@ export const actions: Actions = {
         const modelId = (formData.get('modelId') as string)?.trim()
         const displayName = (formData.get('displayName') as string)?.trim()
         const isDefault = formData.get('isDefault') === 'true'
+        const isSecondary = formData.get('isSecondary') === 'true'
 
         if (!providerId) return fail(400, { error: 'Provider ID is required' })
         if (!modelId) return fail(400, { error: 'Model ID is required' })
@@ -157,6 +160,7 @@ export const actions: Actions = {
                 modelId,
                 displayName,
                 isDefault,
+                isSecondary,
             })
             await reloadAIProviders()
             return { success: true, message: 'Model added' }
@@ -197,6 +201,23 @@ export const actions: Actions = {
         } catch (err) {
             console.error('Failed to set default model:', err)
             return fail(500, { error: 'Failed to set default model' })
+        }
+    },
+
+    setSecondaryModel: async ({ request, locals }) => {
+        requireAdmin(locals)
+
+        const formData = await request.formData()
+        const id = formData.get('id') as string
+        if (!id) return fail(400, { error: 'Model ID is required' })
+
+        try {
+            await setSecondaryModel(id)
+            await reloadAIProviders()
+            return { success: true, message: 'Secondary model updated' }
+        } catch (err) {
+            console.error('Failed to set secondary model:', err)
+            return fail(500, { error: 'Failed to set secondary model' })
         }
     },
 }

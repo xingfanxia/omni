@@ -39,6 +39,7 @@ export interface CreateModelInput {
     modelId: string
     displayName: string
     isDefault?: boolean
+    isSecondary?: boolean
 }
 
 export const PREDEFINED_MODELS: Record<
@@ -186,6 +187,13 @@ export async function createModel(input: CreateModelInput): Promise<Model> {
             .where(eq(models.isDefault, true))
     }
 
+    if (input.isSecondary) {
+        await db
+            .update(models)
+            .set({ isSecondary: false, updatedAt: new Date() })
+            .where(eq(models.isSecondary, true))
+    }
+
     const [model] = await db
         .insert(models)
         .values({
@@ -194,6 +202,7 @@ export async function createModel(input: CreateModelInput): Promise<Model> {
             modelId: input.modelId,
             displayName: input.displayName,
             isDefault: input.isDefault ?? false,
+            isSecondary: input.isSecondary ?? false,
         })
         .returning()
 
@@ -203,7 +212,7 @@ export async function createModel(input: CreateModelInput): Promise<Model> {
 export async function deleteModel(id: string): Promise<boolean> {
     const [updated] = await db
         .update(models)
-        .set({ isDeleted: true, isDefault: false, updatedAt: new Date() })
+        .set({ isDeleted: true, isDefault: false, isSecondary: false, updatedAt: new Date() })
         .where(eq(models.id, id))
         .returning()
 
@@ -219,6 +228,21 @@ export async function setDefaultModel(id: string): Promise<boolean> {
     const [updated] = await db
         .update(models)
         .set({ isDefault: true, updatedAt: new Date() })
+        .where(and(eq(models.id, id), eq(models.isDeleted, false)))
+        .returning()
+
+    return !!updated
+}
+
+export async function setSecondaryModel(id: string): Promise<boolean> {
+    await db
+        .update(models)
+        .set({ isSecondary: false, updatedAt: new Date() })
+        .where(eq(models.isSecondary, true))
+
+    const [updated] = await db
+        .update(models)
+        .set({ isSecondary: true, updatedAt: new Date() })
         .where(and(eq(models.id, id), eq(models.isDeleted, false)))
         .returning()
 

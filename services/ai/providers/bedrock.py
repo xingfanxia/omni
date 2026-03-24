@@ -85,11 +85,8 @@ class BedrockProvider(LLMProvider):
 
     MODEL_FAMILIES = ["anthropic", "amazon"]
 
-    def __init__(
-        self, model_id: str, secondary_model_id: str, region_name: str | None = None
-    ):
+    def __init__(self, model_id: str, region_name: str | None = None):
         self.model_id = model_id
-        self.secondary_model_id = secondary_model_id  # Smaller, faster model
         self.model_family = self._determine_model_family(model_id)
         self.region_name = region_name
 
@@ -597,7 +594,7 @@ class BedrockProvider(LLMProvider):
                 ]
 
                 request_params = {
-                    "model": self.secondary_model_id,
+                    "model": self.model_id,
                     "messages": conversation,
                     "max_tokens": max_tokens or 4096,
                     "temperature": temperature or 0.7,

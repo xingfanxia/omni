@@ -88,7 +88,7 @@ class ModelsRepository:
         pool = await self._get_pool()
         query = """
             SELECT m.id, m.model_provider_id, m.model_id, m.display_name,
-                   m.is_default, m.is_deleted, m.created_at, m.updated_at,
+                   m.is_default, m.is_secondary, m.is_deleted, m.created_at, m.updated_at,
                    mp.provider_type, mp.config
             FROM models m
             JOIN model_providers mp ON m.model_provider_id = mp.id
@@ -103,7 +103,7 @@ class ModelsRepository:
         pool = await self._get_pool()
         query = """
             SELECT m.id, m.model_provider_id, m.model_id, m.display_name,
-                   m.is_default, m.is_deleted, m.created_at, m.updated_at,
+                   m.is_default, m.is_secondary, m.is_deleted, m.created_at, m.updated_at,
                    mp.provider_type, mp.config
             FROM models m
             JOIN model_providers mp ON m.model_provider_id = mp.id
@@ -119,7 +119,7 @@ class ModelsRepository:
         pool = await self._get_pool()
         query = """
             SELECT m.id, m.model_provider_id, m.model_id, m.display_name,
-                   m.is_default, m.is_deleted, m.created_at, m.updated_at,
+                   m.is_default, m.is_secondary, m.is_deleted, m.created_at, m.updated_at,
                    mp.provider_type, mp.config
             FROM models m
             JOIN model_providers mp ON m.model_provider_id = mp.id

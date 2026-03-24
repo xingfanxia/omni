@@ -23,6 +23,17 @@ def _get_default_llm_provider(request: Request) -> LLMProvider | None:
     return next(iter(models.values()), None)
 
 
+def _get_secondary_llm_provider(request: Request) -> LLMProvider | None:
+    """Return the secondary (lightweight) LLM provider, falling back to default."""
+    models = getattr(request.app.state, "models", None)
+    if not models:
+        return None
+    secondary_id = getattr(request.app.state, "secondary_model_id", None)
+    if secondary_id and secondary_id in models:
+        return models[secondary_id]
+    return _get_default_llm_provider(request)
+
+
 @router.post("/prompt")
 async def generate_response(request: Request, body: PromptRequest):
     """Generate a response from the configured LLM provider with streaming support."""
@@ -65,8 +76,8 @@ async def generate_response(request: Request, body: PromptRequest):
 async def _generate_non_streaming_response(
     request: Request, body: PromptRequest
 ) -> PromptResponse:
-    """Generate non-streaming response for backward compatibility."""
-    llm_provider = _get_default_llm_provider(request)
+    """Generate non-streaming response using the secondary (lightweight) model."""
+    llm_provider = _get_secondary_llm_provider(request)
     if not llm_provider:
         raise HTTPException(status_code=500, detail="LLM provider not initialized")
 

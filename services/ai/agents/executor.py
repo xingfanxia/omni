@@ -207,9 +207,15 @@ async def _run_agent_loop(
         skip_permission_check=is_org_agent,
     )
 
-    # Compaction support
+    # Compaction support — use secondary model for summarization when available
+    secondary_provider = llm_provider
+    if (
+        app_state.secondary_model_id
+        and app_state.secondary_model_id in app_state.models
+    ):
+        secondary_provider = app_state.models[app_state.secondary_model_id]
     compactor = ConversationCompactor(
-        llm_provider=llm_provider,
+        llm_provider=secondary_provider,
         redis_client=app_state.redis_client,
     )
 

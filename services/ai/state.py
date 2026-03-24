@@ -25,6 +25,7 @@ class AppState:
     embedding_provider_updated_at: datetime | None = None
     models: dict[str, LLMProvider] = field(default_factory=dict)
     default_model_id: str | None = None
+    secondary_model_id: str | None = None
     searcher_tool: SearcherTool | None = None
     content_storage: ContentStorage | None = None
     redis_client: aioredis.Redis | None = None
