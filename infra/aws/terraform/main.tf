@@ -198,6 +198,11 @@ module "compute" {
   ai_answer_enabled          = var.ai_answer_enabled
   agents_enabled             = var.agents_enabled
 
+  enabled_connectors       = var.enabled_connectors
+  sandbox_url              = var.sandbox_url
+  agent_max_iterations     = var.agent_max_iterations
+  approval_timeout_seconds = var.approval_timeout_seconds
+
   # Storage resources for S3 and batch inference
   content_bucket_arn     = module.storage.content_bucket_arn
   content_bucket_name    = module.storage.content_bucket_name

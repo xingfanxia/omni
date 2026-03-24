@@ -325,3 +325,27 @@ variable "agents_enabled" {
   type        = string
   default     = "false"
 }
+
+variable "enabled_connectors" {
+  description = "List of connectors to deploy"
+  type        = list(string)
+  default     = ["web"]
+}
+
+variable "sandbox_url" {
+  description = "URL of the sandbox service for code execution"
+  type        = string
+  default     = ""
+}
+
+variable "agent_max_iterations" {
+  description = "Maximum iterations for AI agent loops"
+  type        = string
+  default     = "15"
+}
+
+variable "approval_timeout_seconds" {
+  description = "Timeout in seconds for agent approval requests"
+  type        = string
+  default     = "600"
+}
