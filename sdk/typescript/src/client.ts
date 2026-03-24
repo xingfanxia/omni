@@ -40,7 +40,7 @@ export class SdkClient {
     }
   }
 
-  async extractAndStore(
+  async extractAndStoreContent(
     syncRunId: string,
     data: Buffer | Uint8Array,
     mimeType: string,

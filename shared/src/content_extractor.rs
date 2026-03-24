@@ -11,7 +11,7 @@ use zip::ZipArchive;
 ///
 /// When mime_type is `application/octet-stream`, falls back to extension-based
 /// detection using the optional filename.
-pub fn extract_text(data: &[u8], mime_type: &str, filename: Option<&str>) -> Result<String> {
+pub fn extract_content(data: &[u8], mime_type: &str, filename: Option<&str>) -> Result<String> {
     let effective_mime = if mime_type == "application/octet-stream" {
         filename
             .and_then(mime_from_extension)
@@ -276,21 +276,21 @@ mod tests {
     #[test]
     fn test_extract_plain_text() {
         let data = b"Hello, world!";
-        let result = extract_text(data, "text/plain", None).unwrap();
+        let result = extract_content(data, "text/plain", None).unwrap();
         assert_eq!(result, "Hello, world!");
     }
 
     #[test]
     fn test_extract_markdown() {
         let data = b"# Title\n\nSome content";
-        let result = extract_text(data, "text/markdown", None).unwrap();
+        let result = extract_content(data, "text/markdown", None).unwrap();
         assert_eq!(result, "# Title\n\nSome content");
     }
 
     #[test]
     fn test_extract_csv() {
         let data = b"name,age\nAlice,30\nBob,25";
-        let result = extract_text(data, "text/csv", None).unwrap();
+        let result = extract_content(data, "text/csv", None).unwrap();
         assert!(result.contains("Alice"));
         assert!(result.contains("Bob"));
     }
@@ -298,7 +298,7 @@ mod tests {
     #[test]
     fn test_extract_html() {
         let data = b"<html><body><h1>Title</h1><p>Hello world</p></body></html>";
-        let result = extract_text(data, "text/html", None).unwrap();
+        let result = extract_content(data, "text/html", None).unwrap();
         assert!(result.contains("Title"));
         assert!(result.contains("Hello world"));
     }
@@ -311,7 +311,7 @@ mod tests {
         let mut buf = Vec::new();
         docx.build().pack(std::io::Cursor::new(&mut buf)).unwrap();
 
-        let result = extract_text(
+        let result = extract_content(
             &buf,
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             None,
@@ -357,7 +357,7 @@ mod tests {
         let mut buf = Vec::new();
         docx.build().pack(std::io::Cursor::new(&mut buf)).unwrap();
 
-        let result = extract_text(
+        let result = extract_content(
             &buf,
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             None,
@@ -379,7 +379,7 @@ mod tests {
     #[test]
     fn test_extract_xlsx() {
         let data = create_test_xlsx(&[&["Name", "Age"], &["Alice", "30"]]);
-        let result = extract_text(
+        let result = extract_content(
             &data,
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             None,
@@ -391,7 +391,7 @@ mod tests {
     #[test]
     fn test_extract_pptx() {
         let data = create_test_pptx(&["Welcome slide", "Second slide"]);
-        let result = extract_text(
+        let result = extract_content(
             &data,
             "application/vnd.openxmlformats-officedocument.presentationml.presentation",
             None,
@@ -403,20 +403,20 @@ mod tests {
 
     #[test]
     fn test_unsupported_mime_returns_empty() {
-        let result = extract_text(&[0x89, 0x50, 0x4E, 0x47], "image/png", None).unwrap();
+        let result = extract_content(&[0x89, 0x50, 0x4E, 0x47], "image/png", None).unwrap();
         assert!(result.is_empty());
     }
 
     #[test]
     fn test_legacy_doc_returns_empty() {
-        let result = extract_text(b"fake doc data", "application/msword", None).unwrap();
+        let result = extract_content(b"fake doc data", "application/msword", None).unwrap();
         assert!(result.is_empty());
     }
 
     #[test]
     fn test_octet_stream_with_extension_fallback() {
         let data = b"Hello, world!";
-        let result = extract_text(data, "application/octet-stream", Some("notes.txt")).unwrap();
+        let result = extract_content(data, "application/octet-stream", Some("notes.txt")).unwrap();
         assert_eq!(result, "Hello, world!");
     }
 

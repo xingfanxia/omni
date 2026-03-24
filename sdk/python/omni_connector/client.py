@@ -71,7 +71,7 @@ class SdkClient:
                 f"Failed to emit event: {response.status_code} - {response.text}"
             )
 
-    async def extract_and_store(
+    async def extract_and_store_content(
         self,
         sync_run_id: str,
         data: bytes,

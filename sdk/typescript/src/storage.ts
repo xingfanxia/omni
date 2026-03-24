@@ -13,12 +13,12 @@ export class ContentStorage {
     return this.client.storeContent(this.syncRunId, content, contentType);
   }
 
-  async extractAndStore(
+  async extractAndStoreContent(
     data: Buffer | Uint8Array,
     mimeType: string,
     filename?: string
   ): Promise<string> {
-    return this.client.extractAndStore(this.syncRunId, data, mimeType, filename);
+    return this.client.extractAndStoreContent(this.syncRunId, data, mimeType, filename);
   }
 
   async saveBinary(

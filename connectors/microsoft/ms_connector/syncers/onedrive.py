@@ -159,7 +159,7 @@ class OneDriveSyncer(BaseSyncer):
             data = await client.get_binary(
                 f"/drives/{drive_id}/items/{item_id}/content"
             )
-            return await ctx.content_storage.extract_and_store(
+            return await ctx.content_storage.extract_and_store_content(
                 data, mime_type, file_name
             )
         except Exception as e:

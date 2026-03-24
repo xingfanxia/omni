@@ -97,6 +97,12 @@ impl SdkClient {
         Ok(Self::new(&url))
     }
 
+    /// Extract text content from raw file bytes based on MIME type.
+    /// This is a local operation — no HTTP call to the connector manager.
+    pub fn extract_content(data: &[u8], mime_type: &str, filename: Option<&str>) -> Result<String> {
+        crate::content_extractor::extract_content(data, mime_type, filename)
+    }
+
     /// Emit a document event to the queue
     pub async fn emit_event(
         &self,
@@ -135,7 +141,7 @@ impl SdkClient {
     /// XLSX, PPTX, HTML, etc.) and stores the result. When the MIME type is
     /// `application/octet-stream`, the optional filename is used to infer
     /// the actual format.
-    pub async fn extract_and_store(
+    pub async fn extract_and_store_content(
         &self,
         sync_run_id: &str,
         data: Vec<u8>,

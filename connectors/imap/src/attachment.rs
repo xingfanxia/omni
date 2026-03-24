@@ -145,7 +145,7 @@ fn extract_text_from_part(mail: &ParsedMail, mime: &str) -> Result<String> {
     let data = mail
         .get_body_raw()
         .context("Failed to get attachment bytes")?;
-    shared::content_extractor::extract_text(&data, mime, None)
+    shared::SdkClient::extract_content(&data, mime, None)
 }
 
 #[cfg(test)]

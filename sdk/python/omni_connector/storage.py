@@ -30,7 +30,7 @@ class ContentStorage:
             content_type,
         )
 
-    async def extract_and_store(
+    async def extract_and_store_content(
         self,
         data: bytes,
         mime_type: str,
@@ -40,7 +40,7 @@ class ContentStorage:
 
         The connector manager handles extraction based on MIME type.
         """
-        return await self._client.extract_and_store(
+        return await self._client.extract_and_store_content(
             self._sync_run_id,
             data,
             mime_type,

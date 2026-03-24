@@ -703,7 +703,7 @@ pub async fn sdk_extract_content(
     );
 
     let extracted_text =
-        shared::content_extractor::extract_text(&data, &mime_type, filename.as_deref())
+        shared::content_extractor::extract_content(&data, &mime_type, filename.as_deref())
             .unwrap_or_else(|e| {
                 tracing::warn!("Content extraction failed: {}", e);
                 String::new()

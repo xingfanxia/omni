@@ -14,6 +14,17 @@ use crate::models::{
 };
 use shared::RateLimiter;
 
+/// Content returned by `get_file_content`. Text formats are already extracted;
+/// binary formats carry raw bytes for extraction via the SDK.
+pub enum FileContent {
+    Text(String),
+    Binary {
+        data: Vec<u8>,
+        mime_type: String,
+        filename: String,
+    },
+}
+
 const DRIVE_API_BASE: &str = "https://www.googleapis.com/drive/v3";
 const DOCS_API_BASE: &str = "https://docs.googleapis.com/v1";
 const SHEETS_API_BASE: &str = "https://sheets.googleapis.com/v4";
@@ -141,24 +152,25 @@ impl DriveClient {
         auth: &GoogleAuth,
         user_email: &str,
         file: &GoogleDriveFile,
-    ) -> Result<String> {
+    ) -> Result<FileContent> {
         match file.mime_type.as_str() {
-            "application/vnd.google-apps.document" => {
-                self.get_google_doc_content(auth, user_email, &file.id)
-                    .await
-            }
-            "application/vnd.google-apps.spreadsheet" => {
-                self.get_google_sheet_content(auth, user_email, &file.id)
-                    .await
-            }
-            "application/vnd.google-apps.presentation" => {
-                self.get_google_slides_content(auth, user_email, &file.id)
-                    .await
-            }
-            "text/plain" | "text/html" | "text/csv" => {
-                self.download_file_content(auth, user_email, &file.id).await
-            }
-            // Binary document formats — download and extract via shared extractor
+            "application/vnd.google-apps.document" => self
+                .get_google_doc_content(auth, user_email, &file.id)
+                .await
+                .map(FileContent::Text),
+            "application/vnd.google-apps.spreadsheet" => self
+                .get_google_sheet_content(auth, user_email, &file.id)
+                .await
+                .map(FileContent::Text),
+            "application/vnd.google-apps.presentation" => self
+                .get_google_slides_content(auth, user_email, &file.id)
+                .await
+                .map(FileContent::Text),
+            "text/plain" | "text/html" | "text/csv" => self
+                .download_file_content(auth, user_email, &file.id)
+                .await
+                .map(FileContent::Text),
+            // Binary document formats — return raw bytes for extraction via SDK
             "application/pdf"
             | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -166,15 +178,18 @@ impl DriveClient {
             | "application/msword"
             | "application/vnd.ms-excel"
             | "application/vnd.ms-powerpoint" => {
-                let binary_data = self
+                let data = self
                     .download_file_binary(auth, user_email, &file.id)
                     .await?;
-                let filename = Some(file.name.as_str());
-                shared::content_extractor::extract_text(&binary_data, &file.mime_type, filename)
+                Ok(FileContent::Binary {
+                    data,
+                    mime_type: file.mime_type.clone(),
+                    filename: file.name.clone(),
+                })
             }
             _ => {
                 debug!("Unsupported file type: {}", file.mime_type);
-                Ok(String::new())
+                Ok(FileContent::Text(String::new()))
             }
         }
     }
