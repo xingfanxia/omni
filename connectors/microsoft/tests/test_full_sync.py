@@ -342,3 +342,403 @@ async def test_group_membership_sync(
     payload = group_events[0]["payload"]
     assert payload["group_email"] == "engineering@contoso.com"
     assert set(payload["member_emails"]) == {"alice@contoso.com", "bob@contoso.com"}
+
+
+# ---------------------------------------------------------------------------
+# Teams tests
+# ---------------------------------------------------------------------------
+
+TEAM_ID = "team-eng-001"
+CHANNEL_ID = "channel-general-001"
+PRIVATE_CHANNEL_ID = "channel-private-001"
+
+
+def _make_teams_user() -> dict:
+    return {
+        "id": USER_ID,
+        "displayName": "Alice Smith",
+        "mail": "alice@contoso.com",
+        "userPrincipalName": "alice@contoso.com",
+    }
+
+
+def _make_team() -> dict:
+    return {
+        "id": TEAM_ID,
+        "displayName": "Engineering",
+        "mail": "engineering@contoso.com",
+        "description": "Engineering team",
+    }
+
+
+def _make_channel(
+    channel_id: str = CHANNEL_ID,
+    name: str = "General",
+    membership_type: str = "standard",
+) -> dict:
+    return {
+        "id": channel_id,
+        "displayName": name,
+        "membershipType": membership_type,
+        "description": f"{name} channel",
+    }
+
+
+def _make_message(
+    msg_id: str,
+    text: str,
+    sender_name: str = "Alice Smith",
+    sender_id: str = USER_ID,
+    created: str = "2025-01-15T10:00:00Z",
+    reply_to: str | None = None,
+    attachments: list | None = None,
+) -> dict:
+    msg: dict = {
+        "id": msg_id,
+        "messageType": "message",
+        "body": {"contentType": "text", "content": text},
+        "from": {"user": {"id": sender_id, "displayName": sender_name}},
+        "createdDateTime": created,
+        "lastModifiedDateTime": created,
+        "attachments": attachments or [],
+        "mentions": [],
+        "reactions": [],
+    }
+    if reply_to:
+        msg["replyToId"] = reply_to
+    return msg
+
+
+async def test_teams_basic_sync(
+    harness, seed, ms_teams_source_id, mock_graph_api, cm_client: httpx.AsyncClient
+):
+    """Basic Teams sync: one team, one channel, a few messages."""
+    mock_graph_api.add_user(_make_teams_user())
+    mock_graph_api.add_group_member(
+        TEAM_ID,
+        {
+            "id": USER_ID,
+            "displayName": "Alice Smith",
+            "mail": "alice@contoso.com",
+            "userPrincipalName": "alice@contoso.com",
+        },
+    )
+    mock_graph_api.add_team(_make_team())
+    mock_graph_api.add_team_channel(TEAM_ID, _make_channel())
+    mock_graph_api.add_channel_message(
+        TEAM_ID,
+        CHANNEL_ID,
+        _make_message("msg-t1", "Hello team!"),
+    )
+    mock_graph_api.add_channel_message(
+        TEAM_ID,
+        CHANNEL_ID,
+        _make_message(
+            "msg-t2",
+            "Sprint update looks good",
+            sender_name="Bob Jones",
+            sender_id="user-002",
+            created="2025-01-15T11:00:00Z",
+        ),
+    )
+
+    resp = await cm_client.post(
+        "/sync",
+        json={"source_id": ms_teams_source_id, "sync_type": "full"},
+    )
+    assert resp.status_code == 200, resp.text
+    sync_run_id = resp.json()["sync_run_id"]
+
+    row = await wait_for_sync(harness.db_pool, sync_run_id, timeout=60)
+    assert (
+        row["status"] == "completed"
+    ), f"Sync ended with status={row['status']}, error={row.get('error_message')}"
+
+    n_events = await count_events(
+        harness.db_pool, ms_teams_source_id, "document_created"
+    )
+    assert n_events >= 1, f"Expected at least 1 document_created event, got {n_events}"
+
+    events = await get_events(harness.db_pool, ms_teams_source_id)
+    doc_ids = {
+        e["payload"]["document_id"]
+        for e in events
+        if e["event_type"] == "document_created"
+    }
+    assert any(
+        did.startswith("teams:") for did in doc_ids
+    ), f"No teams doc in {doc_ids}"
+
+    state = await seed.get_connector_state(ms_teams_source_id)
+    assert state is not None, "connector_state should be saved after sync"
+    assert "delta_tokens" in state
+
+
+async def test_teams_thread_sync(
+    harness, seed, ms_teams_source_id, mock_graph_api, cm_client: httpx.AsyncClient
+):
+    """Thread messages create a separate thread document."""
+    mock_graph_api.add_user(_make_teams_user())
+    mock_graph_api.add_group_member(
+        TEAM_ID,
+        {
+            "id": USER_ID,
+            "displayName": "Alice Smith",
+            "mail": "alice@contoso.com",
+            "userPrincipalName": "alice@contoso.com",
+        },
+    )
+    mock_graph_api.add_team(_make_team())
+    mock_graph_api.add_team_channel(TEAM_ID, _make_channel())
+
+    # Root message
+    mock_graph_api.add_channel_message(
+        TEAM_ID,
+        CHANNEL_ID,
+        _make_message("msg-root", "Who's working on the API refactor?"),
+    )
+    # Reply
+    mock_graph_api.add_message_reply(
+        TEAM_ID,
+        CHANNEL_ID,
+        "msg-root",
+        _make_message(
+            "msg-reply-1",
+            "I am! Almost done with the endpoint changes.",
+            sender_name="Bob Jones",
+            sender_id="user-002",
+            created="2025-01-15T10:05:00Z",
+            reply_to="msg-root",
+        ),
+    )
+
+    resp = await cm_client.post(
+        "/sync",
+        json={"source_id": ms_teams_source_id, "sync_type": "full"},
+    )
+    assert resp.status_code == 200, resp.text
+    sync_run_id = resp.json()["sync_run_id"]
+
+    row = await wait_for_sync(harness.db_pool, sync_run_id, timeout=60)
+    assert (
+        row["status"] == "completed"
+    ), f"Sync ended with status={row['status']}, error={row.get('error_message')}"
+
+    events = await get_events(harness.db_pool, ms_teams_source_id)
+    doc_ids = {
+        e["payload"]["document_id"]
+        for e in events
+        if e["event_type"] == "document_created"
+    }
+    thread_docs = [did for did in doc_ids if ":thread:" in did]
+    assert len(thread_docs) >= 1, f"Expected a thread document, got {doc_ids}"
+
+
+async def test_teams_private_channel_permissions(
+    harness, seed, ms_teams_source_id, mock_graph_api, cm_client: httpx.AsyncClient
+):
+    """Private channel uses explicit member list for permissions."""
+    mock_graph_api.add_user(_make_teams_user())
+    mock_graph_api.add_user(
+        {
+            "id": "user-002",
+            "displayName": "Bob Jones",
+            "mail": "bob@contoso.com",
+            "userPrincipalName": "bob@contoso.com",
+        }
+    )
+    mock_graph_api.add_group_member(
+        TEAM_ID,
+        {
+            "id": USER_ID,
+            "displayName": "Alice Smith",
+            "mail": "alice@contoso.com",
+            "userPrincipalName": "alice@contoso.com",
+        },
+    )
+    mock_graph_api.add_team(_make_team())
+    mock_graph_api.add_team_channel(
+        TEAM_ID,
+        _make_channel(PRIVATE_CHANNEL_ID, "Secret Project", "private"),
+    )
+    mock_graph_api.add_channel_member(
+        TEAM_ID,
+        PRIVATE_CHANNEL_ID,
+        {
+            "id": "mem-1",
+            "displayName": "Alice Smith",
+            "email": "alice@contoso.com",
+            "userId": USER_ID,
+        },
+    )
+    mock_graph_api.add_channel_message(
+        TEAM_ID,
+        PRIVATE_CHANNEL_ID,
+        _make_message("msg-priv-1", "Confidential discussion here"),
+    )
+
+    resp = await cm_client.post(
+        "/sync",
+        json={"source_id": ms_teams_source_id, "sync_type": "full"},
+    )
+    assert resp.status_code == 200, resp.text
+    sync_run_id = resp.json()["sync_run_id"]
+
+    row = await wait_for_sync(harness.db_pool, sync_run_id, timeout=60)
+    assert (
+        row["status"] == "completed"
+    ), f"Sync ended with status={row['status']}, error={row.get('error_message')}"
+
+    n_events = await count_events(
+        harness.db_pool, ms_teams_source_id, "document_created"
+    )
+    assert n_events >= 1, f"Expected at least 1 document_created event, got {n_events}"
+
+
+async def test_teams_system_messages_filtered(
+    harness, seed, ms_teams_source_id, mock_graph_api, cm_client: httpx.AsyncClient
+):
+    """System event messages (chatEvent) should be filtered out."""
+    mock_graph_api.add_user(_make_teams_user())
+    mock_graph_api.add_group_member(
+        TEAM_ID,
+        {
+            "id": USER_ID,
+            "displayName": "Alice Smith",
+            "mail": "alice@contoso.com",
+            "userPrincipalName": "alice@contoso.com",
+        },
+    )
+    mock_graph_api.add_team(_make_team())
+    mock_graph_api.add_team_channel(TEAM_ID, _make_channel())
+    # System message - should be skipped
+    mock_graph_api.add_channel_message(
+        TEAM_ID,
+        CHANNEL_ID,
+        {
+            "id": "msg-sys-1",
+            "messageType": "systemEventMessage",
+            "body": {"contentType": "html", "content": "<systemEventMessage/>"},
+            "from": None,
+            "createdDateTime": "2025-01-15T09:00:00Z",
+            "lastModifiedDateTime": "2025-01-15T09:00:00Z",
+            "attachments": [],
+            "mentions": [],
+            "reactions": [],
+        },
+    )
+
+    resp = await cm_client.post(
+        "/sync",
+        json={"source_id": ms_teams_source_id, "sync_type": "full"},
+    )
+    assert resp.status_code == 200, resp.text
+    sync_run_id = resp.json()["sync_run_id"]
+
+    row = await wait_for_sync(harness.db_pool, sync_run_id, timeout=60)
+    assert (
+        row["status"] == "completed"
+    ), f"Sync ended with status={row['status']}, error={row.get('error_message')}"
+
+    # No message documents should be created (only system message)
+    n_events = await count_events(
+        harness.db_pool, ms_teams_source_id, "document_created"
+    )
+    assert (
+        n_events == 0
+    ), f"Expected 0 document_created events (system msgs filtered), got {n_events}"
+
+
+async def test_teams_file_attachment(
+    harness, seed, ms_teams_source_id, mock_graph_api, cm_client: httpx.AsyncClient
+):
+    """File attachments resolve via Shares API and emit with sharepoint: external ID."""
+    import base64
+
+    mock_graph_api.add_user(_make_teams_user())
+    mock_graph_api.add_group_member(
+        TEAM_ID,
+        {
+            "id": USER_ID,
+            "displayName": "Alice Smith",
+            "mail": "alice@contoso.com",
+            "userPrincipalName": "alice@contoso.com",
+        },
+    )
+    mock_graph_api.add_team(_make_team())
+    mock_graph_api.add_team_channel(TEAM_ID, _make_channel())
+
+    content_url = (
+        "https://contoso.sharepoint.com/sites/Engineering/Shared Documents/report.pdf"
+    )
+    share_token = "u!" + base64.urlsafe_b64encode(content_url.encode()).decode().rstrip(
+        "="
+    )
+
+    attachment_drive_id = "sp-drive-teams"
+    attachment_item_id = "sp-item-teams"
+    attachment_site_id = "site-eng-001"
+
+    mock_graph_api.set_share_drive_item(
+        share_token,
+        {
+            "id": attachment_item_id,
+            "name": "report.pdf",
+            "file": {"mimeType": "application/pdf"},
+            "size": 4096,
+            "webUrl": content_url,
+            "createdDateTime": "2025-01-10T08:00:00Z",
+            "lastModifiedDateTime": "2025-01-14T12:00:00Z",
+            "parentReference": {
+                "driveId": attachment_drive_id,
+                "siteId": attachment_site_id,
+                "path": "/drive/root:/Shared Documents",
+            },
+        },
+    )
+    mock_graph_api.set_file_content(
+        attachment_drive_id, attachment_item_id, b"PDF file content here"
+    )
+
+    mock_graph_api.add_channel_message(
+        TEAM_ID,
+        CHANNEL_ID,
+        _make_message(
+            "msg-attach-1",
+            "Here's the quarterly report",
+            attachments=[
+                {
+                    "id": "att-001",
+                    "contentType": "reference",
+                    "contentUrl": content_url,
+                    "name": "report.pdf",
+                }
+            ],
+        ),
+    )
+
+    resp = await cm_client.post(
+        "/sync",
+        json={"source_id": ms_teams_source_id, "sync_type": "full"},
+    )
+    assert resp.status_code == 200, resp.text
+    sync_run_id = resp.json()["sync_run_id"]
+
+    row = await wait_for_sync(harness.db_pool, sync_run_id, timeout=60)
+    assert (
+        row["status"] == "completed"
+    ), f"Sync ended with status={row['status']}, error={row.get('error_message')}"
+
+    events = await get_events(harness.db_pool, ms_teams_source_id)
+    doc_ids = {
+        e["payload"]["document_id"]
+        for e in events
+        if e["event_type"] == "document_created"
+    }
+    # Should have both a teams: message doc and a sharepoint: file doc
+    assert any(
+        did.startswith("teams:") for did in doc_ids
+    ), f"No teams message doc in {doc_ids}"
+    assert any(
+        did.startswith("sharepoint:") for did in doc_ids
+    ), f"No sharepoint file doc (attachment) in {doc_ids}"

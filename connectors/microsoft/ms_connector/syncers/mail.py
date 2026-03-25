@@ -1,13 +1,12 @@
 """Outlook Mail syncer using delta queries."""
 
 import logging
-import re
 from typing import Any
 
 from omni_connector import SyncContext
 
 from ..graph_client import GraphClient, GraphAPIError
-from ..mappers import map_message_to_document, generate_message_content
+from ..mappers import map_message_to_document, generate_message_content, strip_html
 from .base import BaseSyncer
 
 logger = logging.getLogger(__name__)
@@ -77,14 +76,3 @@ class MailSyncer(BaseSyncer):
                 await ctx.emit_error(internet_msg_id, str(e))
 
         return new_token
-
-
-_HTML_TAG_RE = re.compile(r"<[^>]+>")
-_WHITESPACE_RE = re.compile(r"\s+")
-
-
-def strip_html(html: str) -> str:
-    """Naive HTML tag stripping for email bodies."""
-    text = _HTML_TAG_RE.sub(" ", html)
-    text = _WHITESPACE_RE.sub(" ", text)
-    return text.strip()

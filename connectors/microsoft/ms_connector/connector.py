@@ -12,6 +12,7 @@ from .syncers.calendar import CalendarSyncer
 from .syncers.mail import MailSyncer
 from .syncers.onedrive import OneDriveSyncer
 from .syncers.sharepoint import SharePointSyncer
+from .syncers.teams import TeamsSyncer
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ SOURCE_TYPE_TO_SYNCER = {
     "share_point": "sharepoint",
     "outlook": "mail",
     "outlook_calendar": "calendar",
+    "ms_teams": "teams",
 }
 
 
@@ -45,11 +47,11 @@ class MicrosoftConnector(Connector):
 
     @property
     def source_types(self) -> list[str]:
-        return ["one_drive", "share_point", "outlook", "outlook_calendar"]
+        return ["one_drive", "share_point", "outlook", "outlook_calendar", "ms_teams"]
 
     @property
     def description(self) -> str:
-        return "Connect to OneDrive, SharePoint, Outlook mail and calendar"
+        return "Connect to OneDrive, SharePoint, Outlook mail, calendar, and Teams"
 
     @property
     def sync_modes(self) -> list[str]:
@@ -251,4 +253,6 @@ class MicrosoftConnector(Connector):
             return CalendarSyncer(source_config)
         elif syncer_key == "sharepoint":
             return SharePointSyncer()
+        elif syncer_key == "teams":
+            return TeamsSyncer()
         raise ValueError(f"Unknown syncer key: {syncer_key}")

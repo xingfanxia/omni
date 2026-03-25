@@ -258,6 +258,82 @@ class GraphClient:
             permissions.append(perm)
         return permissions
 
+    async def list_teams(self) -> list[dict[str, Any]]:
+        """List all teams in the tenant (M365 groups with Teams provisioned)."""
+        teams: list[dict[str, Any]] = []
+        async for team in self.get_paginated(
+            "/groups",
+            params={
+                "$filter": "resourceProvisionedPlans/any(p: p/providingService eq 'MCO')",
+                "$select": "id,displayName,mail,description",
+            },
+        ):
+            teams.append(team)
+        return teams
+
+    async def list_team_channels(self, team_id: str) -> list[dict[str, Any]]:
+        """List all channels in a team."""
+        channels: list[dict[str, Any]] = []
+        async for channel in self.get_paginated(
+            f"/teams/{team_id}/channels",
+            params={"$select": "id,displayName,membershipType,description"},
+        ):
+            channels.append(channel)
+        return channels
+
+    async def list_channel_members(
+        self, team_id: str, channel_id: str
+    ) -> list[dict[str, Any]]:
+        """List members of a channel (for private/shared channels)."""
+        members: list[dict[str, Any]] = []
+        async for member in self.get_paginated(
+            f"/teams/{team_id}/channels/{channel_id}/members",
+            params={"$select": "id,displayName,email,userId"},
+        ):
+            members.append(member)
+        return members
+
+    async def get_channel_messages_delta(
+        self, team_id: str, channel_id: str, delta_token: str | None = None
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Fetch channel messages using delta query for incremental sync."""
+        return await self.get_delta(
+            f"/teams/{team_id}/channels/{channel_id}/messages/delta",
+            delta_token=delta_token,
+            params={
+                "$select": "id,body,from,createdDateTime,lastModifiedDateTime,"
+                "replyToId,attachments,mentions,reactions,messageType",
+            },
+        )
+
+    async def list_message_replies(
+        self, team_id: str, channel_id: str, message_id: str
+    ) -> list[dict[str, Any]]:
+        """List all replies to a channel message."""
+        replies: list[dict[str, Any]] = []
+        async for reply in self.get_paginated(
+            f"/teams/{team_id}/channels/{channel_id}/messages/{message_id}/replies",
+            params={
+                "$select": "id,body,from,createdDateTime,lastModifiedDateTime,"
+                "attachments,mentions,reactions,messageType",
+            },
+        ):
+            replies.append(reply)
+        return replies
+
+    async def resolve_share(self, share_url: str) -> dict[str, Any]:
+        """Resolve a SharePoint sharing URL to its underlying driveItem.
+
+        Encodes the URL as a share token and calls the Shares API.
+        Used to resolve Teams file attachments to their SharePoint driveItem
+        for content extraction and dedup.
+        """
+        import base64
+
+        encoded = base64.urlsafe_b64encode(share_url.encode()).decode().rstrip("=")
+        share_token = f"u!{encoded}"
+        return await self.get(f"/shares/{share_token}/driveItem")
+
     async def test_connection(self) -> None:
         """Validate credentials by calling /organization."""
         await self.get("/organization", params={"$select": "id,displayName"})
