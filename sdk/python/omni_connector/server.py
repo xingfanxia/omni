@@ -70,6 +70,8 @@ def create_app(connector: "Connector") -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):  # noqa: ARG001
+        await connector.start_mcp()
+
         async def registration_loop() -> None:
             while True:
                 try:
@@ -85,6 +87,7 @@ def create_app(connector: "Connector") -> FastAPI:
         yield
 
         registration_task.cancel()
+        await connector.stop_mcp()
 
     app = FastAPI(
         title=f"Omni {connector.name} Connector",
@@ -217,8 +220,8 @@ def create_app(connector: "Connector") -> FastAPI:
             )
         logger.info("Resource requested: %s", request.uri)
         try:
-            connector.prepare_mcp_env(request.credentials)
-            result = await adapter.read_resource(request.uri)
+            env = connector.prepare_mcp_env(request.credentials)
+            result = await adapter.read_resource(request.uri, env=env)
             return JSONResponse(status_code=status.HTTP_200_OK, content=result)
         except Exception as e:
             logger.error("Resource read failed for %s: %s", request.uri, e)
@@ -237,8 +240,8 @@ def create_app(connector: "Connector") -> FastAPI:
             )
         logger.info("Prompt requested: %s", request.name)
         try:
-            connector.prepare_mcp_env(request.credentials)
-            result = await adapter.get_prompt(request.name, request.arguments)
+            env = connector.prepare_mcp_env(request.credentials)
+            result = await adapter.get_prompt(request.name, request.arguments, env=env)
             return JSONResponse(status_code=status.HTTP_200_OK, content=result)
         except Exception as e:
             logger.error("Prompt get failed for %s: %s", request.name, e)

@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import TYPE_CHECKING, Any
 
+from mcp.client.stdio import StdioServerParameters
 from omni_connector import Connector, SearchOperator, SyncContext
-
-if TYPE_CHECKING:
-    from mcp.server.fastmcp import FastMCP
 
 from .client import AuthenticationError, GitHubClient, GitHubError, GitHubRepo
 from .models import GitHubCredentials, GitHubSourceConfig
 from .config import CHECKPOINT_INTERVAL
+
 from .mappers import (
     generate_discussion_content,
     generate_issue_content,
@@ -71,16 +69,16 @@ class GitHubConnector(Connector):
         ]
 
     @property
-    def mcp_server(self) -> FastMCP:
-        from mcp_github.server import mcp
+    def mcp_command(self) -> StdioServerParameters:
+        return StdioServerParameters(
+            command="github-mcp-server",
+            args=["stdio", "--toolsets", "all"],
+        )
 
-        return mcp
-
-    def prepare_mcp_env(self, credentials: dict[str, Any]) -> None:
-        # Connector-manager wraps credentials in {"credentials": {...}, "config": {...}}
+    def prepare_mcp_env(self, credentials: dict[str, Any]) -> dict[str, str]:
         raw_creds = credentials.get("credentials", credentials)
         creds = GitHubCredentials(**raw_creds)
-        os.environ["GITHUB_TOKEN"] = creds.token
+        return {"GITHUB_PERSONAL_ACCESS_TOKEN": creds.token}
 
     async def sync(
         self,

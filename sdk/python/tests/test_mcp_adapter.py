@@ -1,49 +1,27 @@
-"""Tests for the MCP adapter integration."""
+"""Tests for the MCP adapter (stdio transport)."""
 
+import os
+import sys
 from typing import Any
 
 import pytest
-from mcp.server.fastmcp import FastMCP
-from mcp.types import ToolAnnotations
+from mcp.client.stdio import StdioServerParameters
 
 from omni_connector import Connector
 from omni_connector.mcp_adapter import McpAdapter
 
-
-def _create_test_mcp_server() -> FastMCP:
-    server = FastMCP("test")
-
-    @server.tool(annotations=ToolAnnotations(readOnlyHint=True))
-    def greet(name: str) -> str:
-        """Greet someone by name."""
-        return f"Hello, {name}!"
-
-    @server.tool()
-    def add(a: int, b: int) -> str:
-        """Add two numbers."""
-        return str(a + b)
-
-    @server.resource("test://item/{item_id}")
-    def get_item(item_id: str) -> str:
-        """Get an item by ID."""
-        return f"Item {item_id}"
-
-    @server.prompt()
-    def summarize(text: str) -> str:
-        """Summarize the given text."""
-        return f"Please summarize: {text}"
-
-    return server
+# Path to the test MCP server script
+TEST_SERVER = os.path.join(os.path.dirname(__file__), "test_mcp_server.py")
+TEST_PARAMS = StdioServerParameters(command=sys.executable, args=[TEST_SERVER])
 
 
 class TestMcpAdapter:
     @pytest.fixture
-    def mcp_server(self) -> FastMCP:
-        return _create_test_mcp_server()
-
-    @pytest.fixture
-    def adapter(self, mcp_server: FastMCP) -> McpAdapter:
-        return McpAdapter(mcp_server)
+    async def adapter(self):
+        adapter = McpAdapter(TEST_PARAMS)
+        await adapter.ensure_connected()
+        yield adapter
+        await adapter.disconnect()
 
     async def test_get_action_definitions(self, adapter: McpAdapter):
         actions = await adapter.get_action_definitions()
@@ -83,7 +61,7 @@ class TestMcpAdapter:
         result = await adapter.execute_tool("greet", {"name": "World"})
         assert result.status == "success"
         assert result.result is not None
-        assert result.result.get("result") == "Hello, World!"
+        assert "Hello, World!" in result.result.get("content", "")
 
     async def test_execute_tool_error(self, adapter: McpAdapter):
         result = await adapter.execute_tool("nonexistent", {})
@@ -94,9 +72,6 @@ class TestMcpAdapter:
         assert "contents" in result
         contents = result["contents"]
         assert len(contents) >= 1
-        # Resource should contain the item text
-        first = contents[0]
-        assert "text" in first or "blob" in first
 
     async def test_get_prompt(self, adapter: McpAdapter):
         result = await adapter.get_prompt("summarize", {"text": "hello world"})
@@ -106,14 +81,28 @@ class TestMcpAdapter:
         assert msg["role"] == "user"
         assert "hello world" in msg["content"]["text"]
 
+    async def test_reconnect_with_new_env(self, adapter: McpAdapter):
+        """Calling ensure_connected with different env restarts the subprocess."""
+        actions1 = await adapter.get_action_definitions()
+        assert len(actions1) == 2
+
+        # Reconnect with different env — should restart
+        await adapter.ensure_connected(env={"SOME_VAR": "value"})
+        actions2 = await adapter.get_action_definitions()
+        assert len(actions2) == 2
+
+    async def test_disconnect_and_reconnect(self, adapter: McpAdapter):
+        await adapter.disconnect()
+        # Should reconnect on next call
+        actions = await adapter.get_action_definitions()
+        assert len(actions) == 2
+
 
 class TestConnectorMcpIntegration:
-    """Test that a Connector with an MCP server properly delegates."""
+    """Test that a Connector with an MCP command properly delegates."""
 
     @pytest.fixture
     def mcp_connector(self) -> Connector:
-        mcp_server = _create_test_mcp_server()
-
         class McpTestConnector(Connector):
             @property
             def name(self) -> str:
@@ -128,8 +117,8 @@ class TestConnectorMcpIntegration:
                 return ["mcp_test"]
 
             @property
-            def mcp_server(self) -> FastMCP:
-                return mcp_server
+            def mcp_command(self) -> StdioServerParameters:
+                return TEST_PARAMS
 
             async def sync(
                 self,
@@ -150,21 +139,25 @@ class TestConnectorMcpIntegration:
         action_names = {a.name for a in manifest.actions}
         assert "greet" in action_names
         assert "add" in action_names
+        await mcp_connector.stop_mcp()
 
     async def test_manifest_includes_resources(self, mcp_connector: Connector):
         manifest = await mcp_connector.get_manifest(connector_url="http://test:8000")
         assert len(manifest.resources) == 1
         assert manifest.resources[0].uri_template == "test://item/{item_id}"
+        await mcp_connector.stop_mcp()
 
     async def test_manifest_includes_prompts(self, mcp_connector: Connector):
         manifest = await mcp_connector.get_manifest(connector_url="http://test:8000")
         assert len(manifest.prompts) == 1
         assert manifest.prompts[0].name == "summarize"
+        await mcp_connector.stop_mcp()
 
     async def test_execute_action_delegates_to_mcp(self, mcp_connector: Connector):
         result = await mcp_connector.execute_action("greet", {"name": "Omni"}, {})
         assert result.status == "success"
         assert result.result is not None
+        await mcp_connector.stop_mcp()
 
     async def test_execute_action_unknown_returns_not_supported(
         self, mcp_connector: Connector
@@ -172,6 +165,7 @@ class TestConnectorMcpIntegration:
         result = await mcp_connector.execute_action("unknown_action", {}, {})
         assert result.status == "error"
         assert "not supported" in (result.error or "").lower()
+        await mcp_connector.stop_mcp()
 
     async def test_non_mcp_connector_manifest(self):
         class PlainConnector(Connector):

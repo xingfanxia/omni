@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from contextlib import AsyncExitStack
+from typing import Any
+
+from mcp.client.session import ClientSession
+from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from .models import (
     ActionDefinition,
@@ -12,28 +16,79 @@ from .models import (
     McpResourceDefinition,
 )
 
-if TYPE_CHECKING:
-    from mcp.server.fastmcp import FastMCP
-
 logger = logging.getLogger(__name__)
 
 
 class McpAdapter:
-    """Bridges an MCP FastMCP server into Omni's connector protocol.
+    """Bridges an external MCP server (subprocess) into Omni's connector protocol.
 
-    Introspects the MCP server's tools, resources, and prompts and exposes them
-    as Omni ActionDefinitions, resource definitions, and prompt definitions.
-    Tool/resource/prompt calls are dispatched directly to the FastMCP instance
-    (in-process, no transport needed).
+    Spawns the MCP server as a subprocess, communicates via stdio transport
+    (newline-delimited JSON-RPC over stdin/stdout). Works with MCP servers
+    written in any language.
     """
 
-    def __init__(self, mcp_server: FastMCP) -> None:
-        self._server = mcp_server
+    def __init__(self, server_params: StdioServerParameters) -> None:
+        self._base_params = server_params
+        self._current_env: dict[str, str] | None = None
+        self._session: ClientSession | None = None
+        self._exit_stack: AsyncExitStack | None = None
 
-    async def get_action_definitions(self) -> list[ActionDefinition]:
-        tools = await self._server.list_tools()
+    async def ensure_connected(
+        self, env: dict[str, str] | None = None
+    ) -> ClientSession:
+        """Start or reuse the MCP subprocess.
+
+        If *env* differs from the current subprocess environment, the old
+        process is torn down and a new one is spawned with the updated env.
+        """
+        if self._session is not None and env == self._current_env:
+            return self._session
+
+        await self.disconnect()
+
+        params = StdioServerParameters(
+            command=self._base_params.command,
+            args=self._base_params.args,
+            env={**(self._base_params.env or {}), **(env or {})},
+            cwd=self._base_params.cwd,
+        )
+
+        self._exit_stack = AsyncExitStack()
+        try:
+            read_stream, write_stream = await self._exit_stack.enter_async_context(
+                stdio_client(params)
+            )
+            session = await self._exit_stack.enter_async_context(
+                ClientSession(read_stream, write_stream)
+            )
+            await session.initialize()
+            self._session = session
+            self._current_env = env
+            logger.info("MCP subprocess connected: %s", self._base_params.command)
+            return session
+        except Exception:
+            await self._exit_stack.aclose()
+            self._exit_stack = None
+            raise
+
+    async def disconnect(self) -> None:
+        """Terminate the MCP subprocess if running."""
+        if self._exit_stack is not None:
+            try:
+                await self._exit_stack.aclose()
+            except Exception:
+                logger.warning("Error closing MCP subprocess", exc_info=True)
+            self._exit_stack = None
+        self._session = None
+        self._current_env = None
+
+    async def get_action_definitions(
+        self, env: dict[str, str] | None = None
+    ) -> list[ActionDefinition]:
+        session = await self.ensure_connected(env)
+        result = await session.list_tools()
         actions: list[ActionDefinition] = []
-        for tool in tools:
+        for tool in result.tools:
             params: dict[str, ActionParameter] = {}
             input_schema = tool.inputSchema or {}
             properties = input_schema.get("properties", {})
@@ -55,11 +110,14 @@ class McpAdapter:
             )
         return actions
 
-    async def get_resource_definitions(self) -> list[McpResourceDefinition]:
+    async def get_resource_definitions(
+        self, env: dict[str, str] | None = None
+    ) -> list[McpResourceDefinition]:
+        session = await self.ensure_connected(env)
         definitions: list[McpResourceDefinition] = []
 
-        templates = await self._server.list_resource_templates()
-        for tmpl in templates:
+        templates_result = await session.list_resource_templates()
+        for tmpl in templates_result.resourceTemplates:
             definitions.append(
                 McpResourceDefinition(
                     uri_template=str(tmpl.uriTemplate),
@@ -69,8 +127,8 @@ class McpAdapter:
                 )
             )
 
-        resources = await self._server.list_resources()
-        for res in resources:
+        resources_result = await session.list_resources()
+        for res in resources_result.resources:
             definitions.append(
                 McpResourceDefinition(
                     uri_template=str(res.uri),
@@ -82,10 +140,13 @@ class McpAdapter:
 
         return definitions
 
-    async def get_prompt_definitions(self) -> list[McpPromptDefinition]:
-        prompts = await self._server.list_prompts()
+    async def get_prompt_definitions(
+        self, env: dict[str, str] | None = None
+    ) -> list[McpPromptDefinition]:
+        session = await self.ensure_connected(env)
+        result = await session.list_prompts()
         definitions: list[McpPromptDefinition] = []
-        for prompt in prompts:
+        for prompt in result.prompts:
             args = [
                 McpPromptArgument(
                     name=arg.name,
@@ -104,56 +165,50 @@ class McpAdapter:
         return definitions
 
     async def execute_tool(
-        self, name: str, arguments: dict[str, Any]
+        self, name: str, arguments: dict[str, Any], env: dict[str, str] | None = None
     ) -> ActionResponse:
         try:
-            result = await self._server.call_tool(name, arguments)
-            # FastMCP.call_tool returns either:
-            # - A tuple of (content_blocks, structured_content_dict)
-            # - A sequence of content blocks
-            # - A dict
-            if isinstance(result, tuple):
-                content_blocks, structured = result
-                if isinstance(structured, dict):
-                    return ActionResponse.success(structured)
-                return ActionResponse.success(
-                    {"content": self._content_blocks_to_text(content_blocks)}
-                )
-            if isinstance(result, dict):
-                return ActionResponse.success(result)
-            return ActionResponse.success(
-                {"content": self._content_blocks_to_text(result)}
-            )
+            session = await self.ensure_connected(env)
+            result = await session.call_tool(name, arguments)
+            text_parts: list[str] = []
+            for block in result.content:
+                if hasattr(block, "text"):
+                    text_parts.append(block.text)
+                elif hasattr(block, "data"):
+                    text_parts.append(
+                        f"[binary: {getattr(block, 'mimeType', 'unknown')}]"
+                    )
+            content = "\n".join(text_parts)
+            if result.isError:
+                return ActionResponse.failure(content)
+            return ActionResponse.success({"content": content})
         except Exception as e:
             logger.error("MCP tool %s failed: %s", name, e)
             return ActionResponse.failure(str(e))
 
-    @staticmethod
-    def _content_blocks_to_text(blocks: Any) -> str:
-        text_parts: list[str] = []
-        for block in blocks:
-            if hasattr(block, "text"):
-                text_parts.append(block.text)
-            elif hasattr(block, "data"):
-                text_parts.append(f"[binary: {getattr(block, 'mimeType', 'unknown')}]")
-        return "\n".join(text_parts)
-
-    async def read_resource(self, uri: str) -> dict[str, Any]:
-        contents = await self._server.read_resource(uri)
+    async def read_resource(
+        self, uri: str, env: dict[str, str] | None = None
+    ) -> dict[str, Any]:
+        session = await self.ensure_connected(env)
+        result = await session.read_resource(uri)
         items: list[dict[str, Any]] = []
-        for item in contents:
-            entry: dict[str, Any] = {"uri": uri}
-            if hasattr(item, "content") and item.content is not None:
-                entry["text"] = item.content
-            if hasattr(item, "mime_type") and item.mime_type:
-                entry["mime_type"] = item.mime_type
+        for item in result.contents:
+            entry: dict[str, Any] = {"uri": str(item.uri)}
+            if hasattr(item, "text") and item.text is not None:
+                entry["text"] = item.text
+            if hasattr(item, "mimeType") and item.mimeType:
+                entry["mime_type"] = item.mimeType
             items.append(entry)
         return {"contents": items}
 
     async def get_prompt(
-        self, name: str, arguments: dict[str, Any] | None = None
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        env: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        result = await self._server.get_prompt(name, arguments)
+        session = await self.ensure_connected(env)
+        result = await session.get_prompt(name, arguments)
         messages: list[dict[str, Any]] = []
         for msg in result.messages:
             content_data: dict[str, Any]

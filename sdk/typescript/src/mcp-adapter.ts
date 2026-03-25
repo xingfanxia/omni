@@ -1,3 +1,5 @@
+// TODO: Rewrite to use StdioClientTransport (subprocess) instead of InMemoryTransport.
+// The Python SDK has already been migrated. See sdk/python/omni_connector/mcp_adapter.py.
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';

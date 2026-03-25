@@ -8,7 +8,7 @@ from .context import SyncContext
 from .models import ActionDefinition, ActionResponse, ConnectorManifest, SearchOperator
 
 if TYPE_CHECKING:
-    from mcp.server.fastmcp import FastMCP
+    from mcp.client.stdio import StdioServerParameters
 
     from .mcp_adapter import McpAdapter
 
@@ -66,12 +66,21 @@ class Connector(ABC):
         return []
 
     @property
-    def mcp_server(self) -> FastMCP | None:
-        """Return an MCP FastMCP server instance if this connector supports MCP.
+    def mcp_command(self) -> StdioServerParameters | None:
+        """Return stdio params for an external MCP server binary.
 
-        Override this property to enable MCP support. The SDK will automatically
-        introspect the server's tools, resources, and prompts and expose them
-        through the Omni protocol.
+        Override this property to enable MCP support. The SDK will spawn the
+        server as a subprocess, communicate via stdio transport, and expose
+        its tools, resources, and prompts through the Omni protocol.
+
+        Example::
+
+            @property
+            def mcp_command(self):
+                return StdioServerParameters(
+                    command="github-mcp-server",
+                    args=["stdio"],
+                )
         """
         return None
 
@@ -79,13 +88,30 @@ class Connector(ABC):
     def mcp_adapter(self) -> McpAdapter | None:
         if self._mcp_adapter is not None:
             return self._mcp_adapter
-        server = self.mcp_server
-        if server is None:
+        params = self.mcp_command
+        if params is None:
             return None
         from .mcp_adapter import McpAdapter
 
-        self._mcp_adapter = McpAdapter(server)
+        self._mcp_adapter = McpAdapter(params)
         return self._mcp_adapter
+
+    async def start_mcp(self) -> None:
+        """Start the MCP subprocess. Called during server startup."""
+        adapter = self.mcp_adapter
+        if adapter is not None:
+            try:
+                await adapter.ensure_connected()
+            except Exception:
+                logger.warning(
+                    "MCP subprocess failed to start (will retry with credentials)",
+                    exc_info=True,
+                )
+
+    async def stop_mcp(self) -> None:
+        """Stop the MCP subprocess. Called during server shutdown."""
+        if self._mcp_adapter is not None:
+            await self._mcp_adapter.disconnect()
 
     async def _get_all_actions(self) -> list[ActionDefinition]:
         """Merge manually-defined actions with MCP-derived actions."""
@@ -93,7 +119,11 @@ class Connector(ABC):
         adapter = self.mcp_adapter
         if adapter is None:
             return manual_actions
-        mcp_actions = await adapter.get_action_definitions()
+        try:
+            mcp_actions = await adapter.get_action_definitions()
+        except Exception:
+            logger.warning("Failed to list MCP tools", exc_info=True)
+            return manual_actions
         manual_names = {a.name for a in manual_actions}
         merged = list(manual_actions)
         for action in mcp_actions:
@@ -104,6 +134,17 @@ class Connector(ABC):
     async def get_manifest(self, connector_url: str) -> ConnectorManifest:
         """Return connector manifest."""
         adapter = self.mcp_adapter
+        resources = []
+        prompts = []
+        if adapter is not None:
+            try:
+                resources = await adapter.get_resource_definitions()
+            except Exception:
+                logger.warning("Failed to list MCP resources", exc_info=True)
+            try:
+                prompts = await adapter.get_prompt_definitions()
+            except Exception:
+                logger.warning("Failed to list MCP prompts", exc_info=True)
         return ConnectorManifest(
             name=self.name,
             display_name=self.display_name,
@@ -116,8 +157,8 @@ class Connector(ABC):
             actions=await self._get_all_actions(),
             search_operators=self.search_operators,
             mcp_enabled=adapter is not None,
-            resources=await adapter.get_resource_definitions() if adapter else [],
-            prompts=await adapter.get_prompt_definitions() if adapter else [],
+            resources=resources,
+            prompts=prompts,
         )
 
     @abstractmethod
@@ -148,17 +189,18 @@ class Connector(ABC):
         self._cancelled_syncs.add(sync_run_id)
         return True
 
-    def prepare_mcp_env(self, credentials: dict[str, Any]) -> None:
-        """Set up environment for MCP tool/resource/prompt calls.
+    def prepare_mcp_env(self, credentials: dict[str, Any]) -> dict[str, str]:
+        """Return env vars for the MCP subprocess given Omni credentials.
 
         Override this to bridge Omni credentials to the env vars your MCP
-        server expects. Called before every MCP dispatch.
+        server expects. The returned dict is merged into the subprocess env.
 
         Example::
 
             def prepare_mcp_env(self, credentials):
-                os.environ["GITHUB_TOKEN"] = credentials.get("token", "")
+                return {"GITHUB_PERSONAL_ACCESS_TOKEN": credentials["token"]}
         """
+        return {}
 
     async def execute_action(
         self,
@@ -175,10 +217,10 @@ class Connector(ABC):
         """
         adapter = self.mcp_adapter
         if adapter is not None:
-            mcp_tool_names = {a.name for a in await adapter.get_action_definitions()}
+            env = self.prepare_mcp_env(credentials)
+            mcp_tool_names = {a.name for a in await adapter.get_action_definitions(env)}
             if action in mcp_tool_names:
-                self.prepare_mcp_env(credentials)
-                return await adapter.execute_tool(action, params)
+                return await adapter.execute_tool(action, params, env)
         return ActionResponse.not_supported(action)
 
     def serve(self, port: int = 8000, host: str = "0.0.0.0") -> None:
