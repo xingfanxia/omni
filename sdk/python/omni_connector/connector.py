@@ -96,17 +96,20 @@ class Connector(ABC):
         self._mcp_adapter = McpAdapter(params)
         return self._mcp_adapter
 
-    async def start_mcp(self) -> None:
-        """Start the MCP subprocess. Called during server startup."""
+    async def bootstrap_mcp(self, credentials: dict[str, Any]) -> None:
+        """Start the MCP subprocess with credentials and cache tool definitions.
+
+        Called when credentials first become available (e.g., during initial sync).
+        Populates the adapter's cache so subsequent manifest builds include tools.
+        """
         adapter = self.mcp_adapter
-        if adapter is not None:
-            try:
-                await adapter.ensure_connected()
-            except Exception:
-                logger.warning(
-                    "MCP subprocess failed to start (will retry with credentials)",
-                    exc_info=True,
-                )
+        if adapter is None:
+            return
+        env = self.prepare_mcp_env(credentials)
+        try:
+            await adapter.ensure_connected(env)
+        except Exception:
+            logger.warning("MCP bootstrap failed", exc_info=True)
 
     async def stop_mcp(self) -> None:
         """Stop the MCP subprocess. Called during server shutdown."""

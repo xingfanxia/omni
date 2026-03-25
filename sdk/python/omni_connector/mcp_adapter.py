@@ -32,6 +32,10 @@ class McpAdapter:
         self._current_env: dict[str, str] | None = None
         self._session: ClientSession | None = None
         self._exit_stack: AsyncExitStack | None = None
+        # Cache discovered definitions so manifest builds work without credentials
+        self._cached_actions: list[ActionDefinition] | None = None
+        self._cached_resources: list[McpResourceDefinition] | None = None
+        self._cached_prompts: list[McpPromptDefinition] | None = None
 
     async def ensure_connected(
         self, env: dict[str, str] | None = None
@@ -85,84 +89,102 @@ class McpAdapter:
     async def get_action_definitions(
         self, env: dict[str, str] | None = None
     ) -> list[ActionDefinition]:
-        session = await self.ensure_connected(env)
-        result = await session.list_tools()
-        actions: list[ActionDefinition] = []
-        for tool in result.tools:
-            params: dict[str, ActionParameter] = {}
-            input_schema = tool.inputSchema or {}
-            properties = input_schema.get("properties", {})
-            required_set = set(input_schema.get("required", []))
-            for param_name, param_schema in properties.items():
-                params[param_name] = ActionParameter(
-                    type=param_schema.get("type", "string"),
-                    required=param_name in required_set,
-                    description=param_schema.get("description"),
+        try:
+            session = await self.ensure_connected(env)
+            result = await session.list_tools()
+            actions: list[ActionDefinition] = []
+            for tool in result.tools:
+                params: dict[str, ActionParameter] = {}
+                input_schema = tool.inputSchema or {}
+                properties = input_schema.get("properties", {})
+                required_set = set(input_schema.get("required", []))
+                for param_name, param_schema in properties.items():
+                    params[param_name] = ActionParameter(
+                        type=param_schema.get("type", "string"),
+                        required=param_name in required_set,
+                        description=param_schema.get("description"),
+                    )
+                is_read_only = bool(tool.annotations and tool.annotations.readOnlyHint)
+                actions.append(
+                    ActionDefinition(
+                        name=tool.name,
+                        description=tool.description or "",
+                        parameters=params,
+                        mode="read" if is_read_only else "write",
+                    )
                 )
-            is_read_only = bool(tool.annotations and tool.annotations.readOnlyHint)
-            actions.append(
-                ActionDefinition(
-                    name=tool.name,
-                    description=tool.description or "",
-                    parameters=params,
-                    mode="read" if is_read_only else "write",
-                )
-            )
-        return actions
+            self._cached_actions = actions
+            return actions
+        except Exception:
+            if self._cached_actions is not None:
+                return self._cached_actions
+            raise
 
     async def get_resource_definitions(
         self, env: dict[str, str] | None = None
     ) -> list[McpResourceDefinition]:
-        session = await self.ensure_connected(env)
-        definitions: list[McpResourceDefinition] = []
+        try:
+            session = await self.ensure_connected(env)
+            definitions: list[McpResourceDefinition] = []
 
-        templates_result = await session.list_resource_templates()
-        for tmpl in templates_result.resourceTemplates:
-            definitions.append(
-                McpResourceDefinition(
-                    uri_template=str(tmpl.uriTemplate),
-                    name=tmpl.name,
-                    description=tmpl.description,
-                    mime_type=tmpl.mimeType,
+            templates_result = await session.list_resource_templates()
+            for tmpl in templates_result.resourceTemplates:
+                definitions.append(
+                    McpResourceDefinition(
+                        uri_template=str(tmpl.uriTemplate),
+                        name=tmpl.name,
+                        description=tmpl.description,
+                        mime_type=tmpl.mimeType,
+                    )
                 )
-            )
 
-        resources_result = await session.list_resources()
-        for res in resources_result.resources:
-            definitions.append(
-                McpResourceDefinition(
-                    uri_template=str(res.uri),
-                    name=res.name,
-                    description=res.description,
-                    mime_type=res.mimeType,
+            resources_result = await session.list_resources()
+            for res in resources_result.resources:
+                definitions.append(
+                    McpResourceDefinition(
+                        uri_template=str(res.uri),
+                        name=res.name,
+                        description=res.description,
+                        mime_type=res.mimeType,
+                    )
                 )
-            )
 
-        return definitions
+            self._cached_resources = definitions
+            return definitions
+        except Exception:
+            if self._cached_resources is not None:
+                return self._cached_resources
+            raise
 
     async def get_prompt_definitions(
         self, env: dict[str, str] | None = None
     ) -> list[McpPromptDefinition]:
-        session = await self.ensure_connected(env)
-        result = await session.list_prompts()
-        definitions: list[McpPromptDefinition] = []
-        for prompt in result.prompts:
-            args = [
-                McpPromptArgument(
-                    name=arg.name,
-                    description=arg.description,
-                    required=arg.required or False,
+        try:
+            session = await self.ensure_connected(env)
+            result = await session.list_prompts()
+            definitions: list[McpPromptDefinition] = []
+            for prompt in result.prompts:
+                args = [
+                    McpPromptArgument(
+                        name=arg.name,
+                        description=arg.description,
+                        required=arg.required or False,
+                    )
+                    for arg in (prompt.arguments or [])
+                ]
+                definitions.append(
+                    McpPromptDefinition(
+                        name=prompt.name,
+                        description=prompt.description,
+                        arguments=args,
+                    )
                 )
-                for arg in (prompt.arguments or [])
-            ]
-            definitions.append(
-                McpPromptDefinition(
-                    name=prompt.name,
-                    description=prompt.description,
-                    arguments=args,
-                )
-            )
-        return definitions
+            self._cached_prompts = definitions
+            return definitions
+        except Exception:
+            if self._cached_prompts is not None:
+                return self._cached_prompts
+            raise
 
     async def execute_tool(
         self, name: str, arguments: dict[str, Any], env: dict[str, str] | None = None

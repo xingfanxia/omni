@@ -97,6 +97,23 @@ class TestMcpAdapter:
         actions = await adapter.get_action_definitions()
         assert len(actions) == 2
 
+    async def test_cache_survives_connection_failure(self):
+        """After successful discovery, cache is returned if subprocess can't start."""
+        adapter = McpAdapter(TEST_PARAMS)
+        # First: connect and populate cache
+        actions = await adapter.get_action_definitions()
+        assert len(actions) == 2
+        await adapter.disconnect()
+
+        # Replace command with something that will fail
+        adapter._base_params = StdioServerParameters(
+            command="nonexistent-binary", args=[]
+        )
+        # Should return cached actions instead of raising
+        cached = await adapter.get_action_definitions()
+        assert len(cached) == 2
+        assert {a.name for a in cached} == {"greet", "add"}
+
 
 class TestConnectorMcpIntegration:
     """Test that a Connector with an MCP command properly delegates."""

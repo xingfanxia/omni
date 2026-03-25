@@ -70,8 +70,6 @@ def create_app(connector: "Connector") -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):  # noqa: ARG001
-        await connector.start_mcp()
-
         async def registration_loop() -> None:
             while True:
                 try:
@@ -153,6 +151,9 @@ def create_app(connector: "Connector") -> FastAPI:
                     f"Failed to fetch source data: {e}"
                 ).model_dump(),
             )
+
+        # Bootstrap MCP subprocess with credentials (populates tool cache for manifest)
+        await connector.bootstrap_mcp(credentials)
 
         ctx = SyncContext(
             sdk_client=server.sdk_client,
