@@ -1,9 +1,16 @@
+from __future__ import annotations
+
 import logging
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .context import SyncContext
 from .models import ActionDefinition, ActionResponse, ConnectorManifest, SearchOperator
+
+if TYPE_CHECKING:
+    from mcp.client.stdio import StdioServerParameters
+
+    from .mcp_adapter import McpAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +20,7 @@ class Connector(ABC):
 
     def __init__(self) -> None:
         self._cancelled_syncs: set[str] = set()
+        self._mcp_adapter: McpAdapter | None = None
 
     @property
     @abstractmethod
@@ -57,8 +65,90 @@ class Connector(ABC):
         """Search operators this connector supports. Override to declare operators."""
         return []
 
-    def get_manifest(self, connector_url: str) -> ConnectorManifest:
+    @property
+    def mcp_command(self) -> StdioServerParameters | None:
+        """Return stdio params for an external MCP server binary.
+
+        Override this property to enable MCP support. The SDK will spawn the
+        server as a subprocess, communicate via stdio transport, and expose
+        its tools, resources, and prompts through the Omni protocol.
+
+        Example::
+
+            @property
+            def mcp_command(self):
+                return StdioServerParameters(
+                    command="github-mcp-server",
+                    args=["stdio"],
+                )
+        """
+        return None
+
+    @property
+    def mcp_adapter(self) -> McpAdapter | None:
+        if self._mcp_adapter is not None:
+            return self._mcp_adapter
+        params = self.mcp_command
+        if params is None:
+            return None
+        from .mcp_adapter import McpAdapter
+
+        self._mcp_adapter = McpAdapter(params)
+        return self._mcp_adapter
+
+    async def bootstrap_mcp(self, credentials: dict[str, Any]) -> None:
+        """Discover MCP tools/resources/prompts and cache them.
+
+        Called when credentials first become available (e.g., during initial sync).
+        Spawns a temporary subprocess, introspects it, caches the results, then
+        shuts down. Subsequent manifest builds use the cache.
+        """
+        adapter = self.mcp_adapter
+        if adapter is None:
+            logger.debug("bootstrap_mcp: no MCP adapter, skipping")
+            return
+        env = self.prepare_mcp_env(credentials)
+        logger.info(
+            "Bootstrapping MCP: discovering tools (env keys: %s)",
+            sorted(env.keys()) if env else [],
+        )
+        try:
+            await adapter.discover(env)
+        except Exception:
+            logger.warning("MCP bootstrap failed", exc_info=True)
+
+    async def _get_all_actions(self) -> list[ActionDefinition]:
+        """Merge manually-defined actions with MCP-derived actions."""
+        manual_actions = self.actions
+        adapter = self.mcp_adapter
+        if adapter is None:
+            return manual_actions
+        try:
+            mcp_actions = await adapter.get_action_definitions()
+        except Exception:
+            logger.warning("Failed to list MCP tools", exc_info=True)
+            return manual_actions
+        manual_names = {a.name for a in manual_actions}
+        merged = list(manual_actions)
+        for action in mcp_actions:
+            if action.name not in manual_names:
+                merged.append(action)
+        return merged
+
+    async def get_manifest(self, connector_url: str) -> ConnectorManifest:
         """Return connector manifest."""
+        adapter = self.mcp_adapter
+        resources = []
+        prompts = []
+        if adapter is not None:
+            try:
+                resources = await adapter.get_resource_definitions()
+            except Exception:
+                logger.warning("Failed to list MCP resources", exc_info=True)
+            try:
+                prompts = await adapter.get_prompt_definitions()
+            except Exception:
+                logger.warning("Failed to list MCP prompts", exc_info=True)
         return ConnectorManifest(
             name=self.name,
             display_name=self.display_name,
@@ -68,8 +158,11 @@ class Connector(ABC):
             connector_url=connector_url,
             source_types=self.source_types,
             description=self.description,
-            actions=self.actions,
+            actions=await self._get_all_actions(),
             search_operators=self.search_operators,
+            mcp_enabled=adapter is not None,
+            resources=resources,
+            prompts=prompts,
         )
 
     @abstractmethod
@@ -100,6 +193,19 @@ class Connector(ABC):
         self._cancelled_syncs.add(sync_run_id)
         return True
 
+    def prepare_mcp_env(self, credentials: dict[str, Any]) -> dict[str, str]:
+        """Return env vars for the MCP subprocess given Omni credentials.
+
+        Override this to bridge Omni credentials to the env vars your MCP
+        server expects. The returned dict is merged into the subprocess env.
+
+        Example::
+
+            def prepare_mcp_env(self, credentials):
+                return {"GITHUB_PERSONAL_ACCESS_TOKEN": credentials["token"]}
+        """
+        return {}
+
     async def execute_action(
         self,
         action: str,
@@ -110,8 +216,15 @@ class Connector(ABC):
         Execute a connector action.
 
         Override this method to implement connector-specific actions.
-        Default implementation returns not_supported.
+        If MCP is enabled and the action matches an MCP tool, it is
+        dispatched to the MCP server automatically.
         """
+        adapter = self.mcp_adapter
+        if adapter is not None:
+            env = self.prepare_mcp_env(credentials)
+            mcp_tool_names = {a.name for a in await adapter.get_action_definitions(env)}
+            if action in mcp_tool_names:
+                return await adapter.execute_tool(action, params, env)
         return ActionResponse.not_supported(action)
 
     def serve(self, port: int = 8000, host: str = "0.0.0.0") -> None:

@@ -1,12 +1,17 @@
 """Main GitHubConnector class."""
 
-import logging
-from typing import Any
+from __future__ import annotations
 
+import logging
+from typing import TYPE_CHECKING, Any
+
+from mcp.client.stdio import StdioServerParameters
 from omni_connector import Connector, SearchOperator, SyncContext
 
 from .client import AuthenticationError, GitHubClient, GitHubError, GitHubRepo
+from .models import GitHubCredentials, GitHubSourceConfig
 from .config import CHECKPOINT_INTERVAL
+
 from .mappers import (
     generate_discussion_content,
     generate_issue_content,
@@ -63,6 +68,18 @@ class GitHubConnector(Connector):
             ),
         ]
 
+    @property
+    def mcp_command(self) -> StdioServerParameters:
+        return StdioServerParameters(
+            command="github-mcp-server",
+            args=["stdio", "--toolsets", "all"],
+        )
+
+    def prepare_mcp_env(self, credentials: dict[str, Any]) -> dict[str, str]:
+        raw_creds = credentials.get("credentials", credentials)
+        creds = GitHubCredentials(**raw_creds)
+        return {"GITHUB_PERSONAL_ACCESS_TOKEN": creds.token}
+
     async def sync(
         self,
         source_config: dict[str, Any],
@@ -70,16 +87,14 @@ class GitHubConnector(Connector):
         state: dict[str, Any] | None,
         ctx: SyncContext,
     ) -> None:
-        token = credentials.get("token")
-        if not token:
+        try:
+            creds = GitHubCredentials(**credentials)
+        except Exception:
             await ctx.fail("Missing 'token' in credentials")
             return
 
-        api_url = source_config.get("api_url")
-        include_discussions = source_config.get("include_discussions", True)
-        include_forks = source_config.get("include_forks", False)
-
-        client = GitHubClient(token=token, base_url=api_url)
+        config = GitHubSourceConfig(**source_config)
+        client = GitHubClient(token=creds.token, base_url=config.api_url)
 
         try:
             username = await client.validate_token()
@@ -98,9 +113,7 @@ class GitHubConnector(Connector):
         docs_since_checkpoint = 0
 
         try:
-            repos = await self._resolve_repos(
-                client, source_config, username, include_forks
-            )
+            repos = await self._resolve_repos(client, config, username)
 
             await self._sync_permissions(client, repos, ctx)
 
@@ -214,7 +227,7 @@ class GitHubConnector(Connector):
                     new_state_entry["prs_updated_at"] = latest_pr_ts
 
                 # Sync discussions
-                if include_discussions:
+                if config.include_discussions:
                     since_disc = prev.get("discussions_updated_at")
                     latest_disc_ts = since_disc
                     try:
@@ -353,17 +366,15 @@ class GitHubConnector(Connector):
     async def _resolve_repos(
         self,
         client: GitHubClient,
-        source_config: dict[str, Any],
+        config: GitHubSourceConfig,
         username: str,
-        include_forks: bool,
     ) -> list[GitHubRepo]:
-        """Determine which repos to sync based on source_config."""
+        """Determine which repos to sync based on config."""
         repos: list[GitHubRepo] = []
         seen: set[str] = set()
 
-        explicit_repos = source_config.get("repos", [])
-        if explicit_repos:
-            for repo_spec in explicit_repos:
+        if config.repos:
+            for repo_spec in config.repos:
                 parts = repo_spec.split("/", 1)
                 if len(parts) == 2:
                     try:
@@ -374,27 +385,25 @@ class GitHubConnector(Connector):
                     except GitHubError as e:
                         logger.warning("Failed to fetch repo %s: %s", repo_spec, e)
 
-        orgs = source_config.get("orgs", [])
-        for org in orgs:
+        for org in config.orgs:
             async for repo in client.list_repos_for_org(org):
                 if repo.full_name not in seen:
                     seen.add(repo.full_name)
                     repos.append(repo)
 
-        users = source_config.get("users", [])
-        for user in users:
+        for user in config.users:
             async for repo in client.list_repos_for_user(user):
                 if repo.full_name not in seen:
                     seen.add(repo.full_name)
                     repos.append(repo)
 
-        if not explicit_repos and not orgs and not users:
+        if not config.repos and not config.orgs and not config.users:
             async for repo in client.list_repos_for_authenticated_user():
                 if repo.full_name not in seen:
                     seen.add(repo.full_name)
                     repos.append(repo)
 
-        if not include_forks:
+        if not config.include_forks:
             repos = [r for r in repos if not r.fork]
 
         logger.info("Resolved %d repositories to sync", len(repos))

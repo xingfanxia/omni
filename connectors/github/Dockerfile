@@ -1,6 +1,13 @@
 # GitHub Connector Dockerfile
 
-FROM python:3.11-slim as builder
+# Stage 1: Build the official GitHub MCP server (Go binary)
+FROM golang:1.24-alpine AS mcp-builder
+
+RUN apk add --no-cache git
+RUN go install github.com/github/github-mcp-server/cmd/github-mcp-server@latest
+
+# Stage 2: Build Python wheels
+FROM python:3.11-slim AS builder
 
 WORKDIR /build
 
@@ -15,7 +22,7 @@ RUN pip wheel --no-deps -w /wheels /sdk/python
 COPY connectors/github /build
 RUN pip wheel --no-deps -w /wheels /build
 
-# Production stage
+# Stage 3: Production
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -24,6 +31,9 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Copy GitHub MCP server binary
+COPY --from=mcp-builder /go/bin/github-mcp-server /usr/local/bin/
 
 # Copy wheels and install
 COPY --from=builder /wheels /wheels

@@ -1,12 +1,13 @@
 use crate::connector_client::ConnectorClient;
 use crate::models::{
-    ActionRequest, ConnectorInfo, ExecuteActionRequest, ScheduleInfo, SyncProgress,
+    ActionRequest, ConnectorInfo, ExecuteActionRequest, ExecutePromptRequest,
+    ExecuteResourceRequest, PromptRequest, ResourceRequest, ScheduleInfo, SyncProgress,
     TriggerSyncRequest, TriggerSyncResponse, TriggerType,
 };
 use crate::sync_manager::SyncError;
 use crate::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::{
         sse::{Event, KeepAlive, Sse},
@@ -271,26 +272,53 @@ pub async fn execute_action(
         request.action, request.source_id
     );
 
-    // Get source to determine connector type
-    let source: Option<(SourceType,)> =
-        sqlx::query_as("SELECT source_type FROM sources WHERE id = $1")
+    // Get source to determine connector type and config
+    let source: Option<(SourceType, serde_json::Value)> =
+        sqlx::query_as("SELECT source_type, config FROM sources WHERE id = $1")
             .bind(&request.source_id)
             .fetch_optional(state.db_pool.pool())
             .await
             .map_err(|e| ApiError::Internal(e.to_string()))?;
 
-    let source_type = source
-        .ok_or_else(|| ApiError::NotFound(format!("Source not found: {}", request.source_id)))?
-        .0;
+    let (source_type, source_config) = source
+        .ok_or_else(|| ApiError::NotFound(format!("Source not found: {}", request.source_id)))?;
 
-    let connector_url = get_connector_url_for_source(&state.redis_client, source_type)
-        .await
-        .ok_or_else(|| {
-            ApiError::NotFound(format!(
-                "Connector not registered for type: {:?}",
-                source_type
-            ))
-        })?;
+    // Look up the connector manifest to get connector_url and read_only flag
+    let manifests = get_registered_manifests(&state.redis_client).await;
+    let manifest = manifests
+        .iter()
+        .find(|m| m.source_types.contains(&source_type));
+
+    let connector_url = manifest.map(|m| m.connector_url.clone()).ok_or_else(|| {
+        ApiError::NotFound(format!(
+            "Connector not registered for type: {:?}",
+            source_type
+        ))
+    })?;
+
+    // Enforce read_only: block write-mode actions if connector or source is read-only
+    let source_read_only = source_config
+        .get("read_only")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    if let Some(m) = manifest {
+        if m.read_only || source_read_only {
+            let action_mode = m
+                .actions
+                .iter()
+                .find(|a| a.name == request.action)
+                .map(|a| a.mode.as_str())
+                .unwrap_or("write");
+
+            if action_mode == "write" {
+                return Err(ApiError::BadRequest(format!(
+                    "Action '{}' is not allowed: source is read-only",
+                    request.action
+                )));
+            }
+        }
+    }
 
     // Get credentials
     let creds_repo = ServiceCredentialsRepo::new(state.db_pool.pool().clone())
@@ -397,24 +425,215 @@ pub async fn execute_action(
 
 pub async fn list_actions(
     State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    // If source_id is provided, check source-level read_only
+    let source_read_only = if let Some(source_id) = params.get("source_id") {
+        let row: Option<(serde_json::Value,)> =
+            sqlx::query_as("SELECT config FROM sources WHERE id = $1")
+                .bind(source_id)
+                .fetch_optional(state.db_pool.pool())
+                .await
+                .map_err(|e| ApiError::Internal(e.to_string()))?;
+        row.and_then(|(config,)| config.get("read_only").and_then(|v| v.as_bool()))
+            .unwrap_or(false)
+    } else {
+        false
+    };
+
     let manifests = get_registered_manifests(&state.redis_client).await;
     let mut all_actions = Vec::new();
 
     for manifest in manifests {
         for source_type in &manifest.source_types {
             for action in &manifest.actions {
+                if (manifest.read_only || source_read_only) && action.mode == "write" {
+                    continue;
+                }
                 all_actions.push(json!({
                     "source_type": source_type,
                     "name": action.name,
                     "description": action.description,
-                    "parameters": action.parameters
+                    "input_schema": action.input_schema,
+                    "mode": action.mode
                 }));
             }
         }
     }
 
     Ok(Json(json!({ "actions": all_actions })))
+}
+
+pub async fn list_resources(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let manifests = get_registered_manifests(&state.redis_client).await;
+    let mut all_resources = Vec::new();
+
+    for manifest in manifests {
+        if !manifest.mcp_enabled {
+            continue;
+        }
+        for source_type in &manifest.source_types {
+            for resource in &manifest.resources {
+                all_resources.push(json!({
+                    "source_type": source_type,
+                    "uri_template": resource.uri_template,
+                    "name": resource.name,
+                    "description": resource.description,
+                    "mime_type": resource.mime_type,
+                }));
+            }
+        }
+    }
+
+    Ok(Json(json!({ "resources": all_resources })))
+}
+
+pub async fn list_prompts(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let manifests = get_registered_manifests(&state.redis_client).await;
+    let mut all_prompts = Vec::new();
+
+    for manifest in manifests {
+        if !manifest.mcp_enabled {
+            continue;
+        }
+        for source_type in &manifest.source_types {
+            for prompt in &manifest.prompts {
+                all_prompts.push(json!({
+                    "source_type": source_type,
+                    "name": prompt.name,
+                    "description": prompt.description,
+                    "arguments": prompt.arguments,
+                }));
+            }
+        }
+    }
+
+    Ok(Json(json!({ "prompts": all_prompts })))
+}
+
+pub async fn read_resource(
+    State(state): State<AppState>,
+    Json(request): Json<ExecuteResourceRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    info!(
+        "Reading resource {} for source {}",
+        request.uri, request.source_id
+    );
+
+    let source: Option<(SourceType,)> =
+        sqlx::query_as("SELECT source_type FROM sources WHERE id = $1")
+            .bind(&request.source_id)
+            .fetch_optional(state.db_pool.pool())
+            .await
+            .map_err(|e| ApiError::Internal(e.to_string()))?;
+
+    let source_type = source
+        .ok_or_else(|| ApiError::NotFound(format!("Source not found: {}", request.source_id)))?
+        .0;
+
+    let connector_url = get_connector_url_for_source(&state.redis_client, source_type)
+        .await
+        .ok_or_else(|| {
+            ApiError::NotFound(format!(
+                "Connector not registered for type: {:?}",
+                source_type
+            ))
+        })?;
+
+    let creds_repo = ServiceCredentialsRepo::new(state.db_pool.pool().clone())
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+    let creds = creds_repo
+        .get_by_source_id(&request.source_id)
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?
+        .ok_or_else(|| {
+            ApiError::NotFound(format!(
+                "Credentials not found for source: {}",
+                request.source_id
+            ))
+        })?;
+
+    let client = ConnectorClient::new();
+    let resource_request = ResourceRequest {
+        uri: request.uri,
+        credentials: json!({
+            "credentials": creds.credentials,
+            "config": creds.config,
+            "principal_email": creds.principal_email,
+        }),
+    };
+
+    let result = client
+        .read_resource(&connector_url, &resource_request)
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+
+    Ok(Json(result))
+}
+
+pub async fn get_prompt(
+    State(state): State<AppState>,
+    Json(request): Json<ExecutePromptRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    info!(
+        "Getting prompt {} for source {}",
+        request.name, request.source_id
+    );
+
+    let source: Option<(SourceType,)> =
+        sqlx::query_as("SELECT source_type FROM sources WHERE id = $1")
+            .bind(&request.source_id)
+            .fetch_optional(state.db_pool.pool())
+            .await
+            .map_err(|e| ApiError::Internal(e.to_string()))?;
+
+    let source_type = source
+        .ok_or_else(|| ApiError::NotFound(format!("Source not found: {}", request.source_id)))?
+        .0;
+
+    let connector_url = get_connector_url_for_source(&state.redis_client, source_type)
+        .await
+        .ok_or_else(|| {
+            ApiError::NotFound(format!(
+                "Connector not registered for type: {:?}",
+                source_type
+            ))
+        })?;
+
+    let creds_repo = ServiceCredentialsRepo::new(state.db_pool.pool().clone())
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+    let creds = creds_repo
+        .get_by_source_id(&request.source_id)
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?
+        .ok_or_else(|| {
+            ApiError::NotFound(format!(
+                "Credentials not found for source: {}",
+                request.source_id
+            ))
+        })?;
+
+    let client = ConnectorClient::new();
+    let prompt_request = PromptRequest {
+        name: request.name,
+        arguments: request.arguments,
+        credentials: json!({
+            "credentials": creds.credentials,
+            "config": creds.config,
+            "principal_email": creds.principal_email,
+        }),
+    };
+
+    let result = client
+        .get_prompt(&connector_url, &prompt_request)
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+
+    Ok(Json(result))
 }
 
 #[derive(Debug, thiserror::Error)]

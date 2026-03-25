@@ -44,7 +44,7 @@ export class LinearConnector extends Connector<LinearSourceConfig, LinearCredent
     {
       name: 'list_teams',
       description: 'List all accessible teams in the Linear workspace',
-      parameters: {},
+      input_schema: { type: 'object', properties: {} },
       mode: 'read',
     },
   ];

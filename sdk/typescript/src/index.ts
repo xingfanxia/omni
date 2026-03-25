@@ -2,6 +2,8 @@ export { Connector, type ServeOptions } from './connector.js';
 export { SyncContext } from './context.js';
 export { ContentStorage } from './storage.js';
 export { SdkClient } from './client.js';
+// McpAdapter is not re-exported here to avoid requiring @modelcontextprotocol/sdk
+// as a mandatory dependency. Import directly from './mcp-adapter.js' when needed.
 export { createServer } from './server.js';
 
 export {
@@ -11,9 +13,11 @@ export {
   DocumentPermissionsSchema,
   DocumentSchema,
   ConnectorEventSchema,
-  ActionParameterSchema,
   ActionDefinitionSchema,
   SearchOperatorSchema,
+  McpResourceDefinitionSchema,
+  McpPromptArgumentSchema,
+  McpPromptDefinitionSchema,
   ConnectorManifestSchema,
   SyncRequestSchema,
   SyncResponseSchema,
@@ -31,9 +35,11 @@ export {
   type DocumentPermissions,
   type Document,
   type ConnectorEvent,
-  type ActionParameter,
   type ActionDefinition,
   type SearchOperator,
+  type McpResourceDefinition,
+  type McpPromptArgument,
+  type McpPromptDefinition,
   type ConnectorManifest,
   type SyncRequest,
   type SyncResponse,

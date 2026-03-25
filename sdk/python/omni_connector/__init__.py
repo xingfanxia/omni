@@ -9,7 +9,6 @@ from .exceptions import (
 )
 from .models import (
     ActionDefinition,
-    ActionParameter,
     ActionRequest,
     ActionResponse,
     CancelRequest,
@@ -22,6 +21,9 @@ from .models import (
     DocumentPermissions,
     EventType,
     GroupMembershipSyncEvent,
+    McpPromptArgument,
+    McpPromptDefinition,
+    McpResourceDefinition,
     SearchOperator,
     SyncMode,
     SyncRequest,
@@ -46,7 +48,6 @@ __all__ = [
     "GroupMembershipSyncEvent",
     "EventType",
     "ActionDefinition",
-    "ActionParameter",
     "ActionRequest",
     "ActionResponse",
     "ConnectorManifest",
@@ -56,6 +57,10 @@ __all__ = [
     "SyncResponse",
     "CancelRequest",
     "CancelResponse",
+    # MCP models
+    "McpResourceDefinition",
+    "McpPromptDefinition",
+    "McpPromptArgument",
     # Exceptions
     "ConnectorError",
     "SdkClientError",

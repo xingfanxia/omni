@@ -333,13 +333,41 @@ fn default_search_operator_value_type() -> String {
 pub struct ActionDefinition {
     pub name: String,
     pub description: String,
-    pub parameters: JsonValue,
+    pub input_schema: JsonValue,
     #[serde(default = "default_action_mode")]
     pub mode: String,
 }
 
 fn default_action_mode() -> String {
     "write".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpResourceDefinition {
+    pub uri_template: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub mime_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpPromptArgument {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub required: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpPromptDefinition {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub arguments: Vec<McpPromptArgument>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -364,6 +392,12 @@ pub struct ConnectorManifest {
     pub extra_schema: Option<JsonValue>,
     #[serde(default)]
     pub attributes_schema: Option<JsonValue>,
+    #[serde(default)]
+    pub mcp_enabled: bool,
+    #[serde(default)]
+    pub resources: Vec<McpResourceDefinition>,
+    #[serde(default)]
+    pub prompts: Vec<McpPromptDefinition>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

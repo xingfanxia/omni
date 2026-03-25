@@ -27,7 +27,7 @@ class ConnectorAction:
     source_name: str
     action_name: str
     description: str
-    parameters: dict
+    input_schema: dict
     mode: str  # "read" | "write"
 
 
@@ -170,7 +170,9 @@ class ConnectorToolHandler:
                             "source_name": source.get("name", source_type),
                             "action_name": action_def["name"],
                             "description": action_def.get("description", ""),
-                            "parameters": action_def.get("parameters", {}),
+                            "input_schema": action_def.get(
+                                "input_schema", {"type": "object", "properties": {}}
+                            ),
                             "mode": action_def.get("mode", "write"),
                         }
                     )
@@ -215,33 +217,16 @@ class ConnectorToolHandler:
                 source_name=action["source_name"],
                 action_name=action["action_name"],
                 description=action["description"],
-                parameters=action["parameters"],
+                input_schema=action["input_schema"],
                 mode=action["mode"],
             )
-
-            # Convert connector parameter definitions to JSON Schema
-            properties = {}
-            required = []
-            for param_name, param_def in action["parameters"].items():
-                prop: dict = {
-                    "type": param_def.get("type", "string"),
-                }
-                if param_def.get("description"):
-                    prop["description"] = param_def["description"]
-                properties[param_name] = prop
-                if param_def.get("required"):
-                    required.append(param_name)
 
             source_display = action["source_name"] or action["source_type"]
             self._tools.append(
                 {
                     "name": tool_name,
                     "description": f"[{source_display}] {action['description']}",
-                    "input_schema": {
-                        "type": "object",
-                        "properties": properties,
-                        "required": required,
-                    },
+                    "input_schema": action["input_schema"],
                 }
             )
 

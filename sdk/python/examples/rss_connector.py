@@ -29,7 +29,6 @@ except ImportError:
 
 from omni_connector import (
     ActionDefinition,
-    ActionParameter,
     ActionResponse,
     Connector,
     Document,
@@ -63,12 +62,15 @@ class RSSConnector(Connector):
             ActionDefinition(
                 name="validate_feed",
                 description="Validate that an RSS feed URL is accessible and parseable",
-                parameters={
-                    "feed_url": ActionParameter(
-                        type="string",
-                        required=True,
-                        description="The RSS feed URL to validate",
-                    ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "feed_url": {
+                            "type": "string",
+                            "description": "The RSS feed URL to validate",
+                        },
+                    },
+                    "required": ["feed_url"],
                 },
             ),
         ]

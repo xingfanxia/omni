@@ -23,6 +23,8 @@ export abstract class Connector<
   abstract readonly version: string;
   abstract readonly sourceTypes: string[];
 
+  private _mcpAdapter: unknown | null = null;
+
   get displayName(): string {
     return this.name;
   }
@@ -37,7 +39,41 @@ export abstract class Connector<
   readonly extraSchema?: Record<string, unknown>;
   readonly attributesSchema?: Record<string, unknown>;
 
-  getManifest(connectorUrl: string): ConnectorManifest {
+  /**
+   * Return an MCP McpServer instance if this connector supports MCP.
+   * Override this getter to enable MCP support.
+   * Requires @modelcontextprotocol/sdk as a dependency.
+   */
+  get mcpServer(): unknown | undefined {
+    return undefined;
+  }
+
+  async getMcpAdapter(): Promise<{ getActionDefinitions(): Promise<ActionDefinition[]>; getResourceDefinitions(): Promise<unknown[]>; getPromptDefinitions(): Promise<unknown[]>; executeTool(name: string, params: Record<string, unknown>): Promise<ActionResponse>; readResource(uri: string): Promise<unknown>; getPrompt(name: string, args?: Record<string, string>): Promise<unknown> } | undefined> {
+    if (this._mcpAdapter !== null) {
+      return this._mcpAdapter as ReturnType<typeof this.getMcpAdapter> extends Promise<infer T> ? T : never;
+    }
+    const server = this.mcpServer;
+    if (!server) {
+      return undefined;
+    }
+    const { McpAdapter } = await import('./mcp-adapter.js');
+    this._mcpAdapter = new McpAdapter(server as any);
+    return this._mcpAdapter as any;
+  }
+
+  private async getAllActions(): Promise<ActionDefinition[]> {
+    const manualActions = this.actions;
+    const adapter = await this.getMcpAdapter();
+    if (!adapter) {
+      return manualActions;
+    }
+    const mcpActions = await adapter.getActionDefinitions();
+    const manualNames = new Set(manualActions.map((a) => a.name));
+    return [...manualActions, ...mcpActions.filter((a) => !manualNames.has(a.name))];
+  }
+
+  async getManifest(connectorUrl: string): Promise<ConnectorManifest> {
+    const adapter = await this.getMcpAdapter();
     return {
       name: this.name,
       display_name: this.displayName,
@@ -47,10 +83,13 @@ export abstract class Connector<
       connector_url: connectorUrl,
       source_types: this.sourceTypes,
       description: this.description,
-      actions: this.actions,
+      actions: await this.getAllActions(),
       search_operators: this.searchOperators,
       extra_schema: this.extraSchema,
       attributes_schema: this.attributesSchema,
+      mcp_enabled: adapter !== undefined,
+      resources: adapter ? await adapter.getResourceDefinitions() as any[] : [],
+      prompts: adapter ? await adapter.getPromptDefinitions() as any[] : [],
     };
   }
 
@@ -65,12 +104,29 @@ export abstract class Connector<
     return false;
   }
 
-  executeAction(
+  /**
+   * Set up environment for MCP tool/resource/prompt calls.
+   * Override to bridge Omni credentials to the env vars your MCP server expects.
+   */
+  prepareMcpEnv(_credentials: TCredentials): void {
+    // no-op by default
+  }
+
+  async executeAction(
     action: string,
-    _params: Record<string, unknown>,
-    _credentials: TCredentials
+    params: Record<string, unknown>,
+    credentials: TCredentials
   ): Promise<ActionResponse> {
-    return Promise.resolve(createActionResponseNotSupported(action));
+    const adapter = await this.getMcpAdapter();
+    if (adapter) {
+      const mcpActions = await adapter.getActionDefinitions();
+      const mcpToolNames = new Set(mcpActions.map((a) => a.name));
+      if (mcpToolNames.has(action)) {
+        this.prepareMcpEnv(credentials);
+        return adapter.executeTool(action, params);
+      }
+    }
+    return createActionResponseNotSupported(action);
   }
 
   serve(options: ServeOptions = {}): void {

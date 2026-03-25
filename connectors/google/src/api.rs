@@ -77,12 +77,15 @@ pub fn build_manifest(connector_url: String) -> ConnectorManifest {
             name: "fetch_file".to_string(),
             description: "Download a file from Google Drive. Exports Google Workspace files to Office format.".to_string(),
             mode: "read".to_string(),
-            parameters: json!({
-                "file_id": {
-                    "type": "string",
-                    "required": true,
-                    "description": "The Google Drive file ID"
-                }
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "file_id": {
+                        "type": "string",
+                        "description": "The Google Drive file ID"
+                    }
+                },
+                "required": ["file_id"]
             }),
         }],
         search_operators: vec![
@@ -100,6 +103,9 @@ pub fn build_manifest(connector_url: String) -> ConnectorManifest {
         read_only: false,
         extra_schema: None,
         attributes_schema: None,
+        mcp_enabled: false,
+        resources: vec![],
+        prompts: vec![],
     }
 }
 
