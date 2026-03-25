@@ -1,5 +1,6 @@
 """Typed application state for FastAPI app.state"""
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -29,4 +30,5 @@ class AppState:
     searcher_tool: SearcherTool | None = None
     content_storage: ContentStorage | None = None
     redis_client: aioredis.Redis | None = None
+    listener_task: asyncio.Task | None = None
     agent_run_queues: dict = field(default_factory=dict)  # {run_id: asyncio.Queue}

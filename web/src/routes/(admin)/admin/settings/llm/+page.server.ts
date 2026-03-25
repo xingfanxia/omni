@@ -196,7 +196,6 @@ export const actions: Actions = {
 
         try {
             await setDefaultModel(id)
-            await reloadAIProviders()
             return { success: true, message: 'Default model updated' }
         } catch (err) {
             console.error('Failed to set default model:', err)
@@ -213,7 +212,6 @@ export const actions: Actions = {
 
         try {
             await setSecondaryModel(id)
-            await reloadAIProviders()
             return { success: true, message: 'Secondary model updated' }
         } catch (err) {
             console.error('Failed to set secondary model:', err)

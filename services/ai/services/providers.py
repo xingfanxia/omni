@@ -14,6 +14,7 @@ from db_config import (
     invalidate_embedding_config_cache,
 )
 from db import ModelsRepository, ModelRecord, EmbeddingProvidersRepository
+from db.listener import start_db_listener
 from providers import create_llm_provider, LLMProvider
 from embeddings import create_embedding_provider
 from tools import SearcherTool
@@ -209,43 +210,77 @@ async def reload_embedding_provider(app_state: AppState) -> None:
     await _init_embedding_provider(app_state)
 
 
-PROVIDER_WATCH_INTERVAL_SECONDS = 30
+def _handle_model_provider_notification(app_state: AppState, payload: dict) -> None:
+    """Handle model_provider_changed notification — update default/secondary pointers."""
+    model_id = payload.get("id", "").strip()
+    if not model_id or model_id not in app_state.models:
+        return
+
+    if payload.get("is_default"):
+        app_state.default_model_id = model_id
+        logger.info(f"Default model updated to {model_id} via NOTIFY")
+    elif app_state.default_model_id == model_id:
+        app_state.default_model_id = None
+        logger.info(f"Default model cleared (was {model_id}) via NOTIFY")
+
+    if payload.get("is_secondary"):
+        app_state.secondary_model_id = model_id
+        logger.info(f"Secondary model updated to {model_id} via NOTIFY")
+    elif app_state.secondary_model_id == model_id:
+        app_state.secondary_model_id = None
+        logger.info(f"Secondary model cleared (was {model_id}) via NOTIFY")
 
 
-async def _watch_embedding_provider(app_state: AppState) -> None:
-    """Poll DB for embedding provider changes and reload when detected."""
-    repo = EmbeddingProvidersRepository()
-    while True:
-        await asyncio.sleep(PROVIDER_WATCH_INTERVAL_SECONDS)
-        try:
-            fingerprint = await repo.get_current_fingerprint()
-            current_id = fingerprint[0] if fingerprint else None
-            current_updated_at = fingerprint[1] if fingerprint else None
+def _handle_embedding_provider_notification(app_state: AppState, payload: dict) -> None:
+    """Handle embedding_provider_changed notification — reload embedding provider."""
+    logger.info(
+        f"Embedding provider change detected via NOTIFY (id={payload.get('id')}), reloading"
+    )
+    asyncio.create_task(reload_embedding_provider(app_state))
 
-            if (
-                current_id != app_state.embedding_provider_id
-                or current_updated_at != app_state.embedding_provider_updated_at
-            ):
-                if fingerprint is None:
-                    logger.info("Embedding provider removed, clearing provider")
-                else:
-                    logger.info(
-                        f"Embedding provider change detected (id={current_id}), reloading"
-                    )
-                await reload_embedding_provider(app_state)
-        except Exception:
-            logger.exception("Error checking for embedding provider changes")
+
+async def _refresh_model_flags(app_state: AppState) -> None:
+    """Re-read default/secondary model flags from DB (catch-up after reconnect)."""
+    repo = ModelsRepository()
+    records = await repo.list_active()
+    default_id: str | None = None
+    secondary_id: str | None = None
+    for record in records:
+        if record.is_default:
+            default_id = record.id
+        if record.is_secondary:
+            secondary_id = record.id
+    app_state.default_model_id = default_id
+    app_state.secondary_model_id = secondary_id
+    logger.info(
+        f"Refreshed model flags: default={default_id}, secondary={secondary_id}"
+    )
 
 
 async def initialize_providers(app_state: AppState) -> None:
     """Initialize all providers (embedding, LLM, tools, storage)."""
     await _init_embedding_provider(app_state)
 
-    asyncio.create_task(_watch_embedding_provider(app_state))
-    logger.info("Started embedding provider watcher")
-
     # Initialize models from database
     await load_models(app_state)
+
+    # Start DB listener for real-time config change notifications
+    async def _on_reconnect():
+        await _refresh_model_flags(app_state)
+        await reload_embedding_provider(app_state)
+
+    app_state.listener_task = await start_db_listener(
+        channels={
+            "model_provider_changed": lambda payload: _handle_model_provider_notification(
+                app_state, payload
+            ),
+            "embedding_provider_changed": lambda payload: _handle_embedding_provider_notification(
+                app_state, payload
+            ),
+        },
+        on_reconnect=_on_reconnect,
+    )
+    logger.info("Started DB change listener")
 
     # Initialize Redis client for caching
     app_state.redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
@@ -270,6 +305,9 @@ async def start_batch_processor(app_state: AppState) -> None:
 
 async def shutdown_providers(app_state: "AppState"):
     """Cleanup providers on shutdown."""
+    if app_state.listener_task:
+        app_state.listener_task.cancel()
+        logger.info("Cancelled DB listener task")
     if app_state.redis_client:
         await app_state.redis_client.close()
         logger.info("Closed Redis client")
