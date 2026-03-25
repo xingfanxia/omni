@@ -30,15 +30,14 @@ class TestMcpAdapter:
 
         greet_action = next(a for a in actions if a.name == "greet")
         assert greet_action.description == "Greet someone by name."
-        assert "name" in greet_action.parameters
-        assert greet_action.parameters["name"].required is True
-        assert greet_action.parameters["name"].type == "string"
+        assert "name" in greet_action.input_schema.get("properties", {})
+        assert "name" in greet_action.input_schema.get("required", [])
+        assert greet_action.input_schema["properties"]["name"]["type"] == "string"
         assert greet_action.mode == "read"
 
         add_action = next(a for a in actions if a.name == "add")
-        assert "a" in add_action.parameters
-        assert "b" in add_action.parameters
-        assert add_action.parameters["a"].required is True
+        assert "a" in add_action.input_schema.get("properties", {})
+        assert "b" in add_action.input_schema.get("properties", {})
         assert add_action.mode == "write"
 
     async def test_get_resource_definitions(self, adapter: McpAdapter):

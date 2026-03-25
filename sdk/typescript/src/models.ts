@@ -67,17 +67,10 @@ export const GroupMembershipEventSchema = z.object({
 });
 export type GroupMembershipEvent = z.infer<typeof GroupMembershipEventSchema>;
 
-export const ActionParameterSchema = z.object({
-  type: z.string(),
-  required: z.boolean().default(false),
-  description: z.string().optional(),
-});
-export type ActionParameter = z.infer<typeof ActionParameterSchema>;
-
 export const ActionDefinitionSchema = z.object({
   name: z.string(),
   description: z.string(),
-  parameters: z.record(ActionParameterSchema).default({}),
+  input_schema: z.record(z.any()).default({ type: 'object', properties: {} }),
   mode: z.enum(['read', 'write']).default('write'),
 });
 export type ActionDefinition = z.infer<typeof ActionDefinitionSchema>;

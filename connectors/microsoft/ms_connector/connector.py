@@ -4,7 +4,7 @@ import logging
 from typing import Any
 
 from omni_connector import Connector, SearchOperator, SyncContext
-from omni_connector.models import ActionDefinition, ActionParameter, ActionResponse
+from omni_connector.models import ActionDefinition, ActionResponse
 
 from .auth import MSGraphAuth
 from .graph_client import AuthenticationError, GraphAPIError, GraphClient
@@ -69,10 +69,12 @@ class MicrosoftConnector(Connector):
             ActionDefinition(
                 name="search_users",
                 description="Search Microsoft 365 users by name or email",
-                parameters={
-                    "query": ActionParameter(
-                        type="string", required=True, description="Search query"
-                    ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query"},
+                    },
+                    "required": ["query"],
                 },
             )
         ]

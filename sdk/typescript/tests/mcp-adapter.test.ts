@@ -71,9 +71,9 @@ describe('McpAdapter', () => {
 
     const greet = actions.find((a) => a.name === 'greet')!;
     expect(greet.description).toBe('Greet someone by name');
-    expect(greet.parameters.name).toBeDefined();
-    expect(greet.parameters.name.type).toBe('string');
-    expect(greet.parameters.name.required).toBe(true);
+    expect(greet.input_schema.properties.name).toBeDefined();
+    expect(greet.input_schema.properties.name.type).toBe('string');
+    expect(greet.input_schema.required).toContain('name');
     expect(greet.mode).toBe('read');
 
     const add = actions.find((a) => a.name === 'add')!;

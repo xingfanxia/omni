@@ -48,28 +48,11 @@ export class McpAdapter {
     const actions: ActionDefinition[] = [];
 
     for (const tool of tools) {
-      const params: Record<string, { type: string; required: boolean; description?: string }> = {};
-      const inputSchema = tool.inputSchema ?? {};
-      const properties = (inputSchema as Record<string, unknown>).properties as
-        | Record<string, Record<string, unknown>>
-        | undefined ?? {};
-      const requiredSet = new Set(
-        ((inputSchema as Record<string, unknown>).required as string[] | undefined) ?? []
-      );
-
-      for (const [paramName, paramSchema] of Object.entries(properties)) {
-        params[paramName] = {
-          type: (paramSchema.type as string) ?? 'string',
-          required: requiredSet.has(paramName),
-          description: paramSchema.description as string | undefined,
-        };
-      }
-
       const isReadOnly = tool.annotations?.readOnlyHint === true;
       actions.push({
         name: tool.name,
         description: tool.description ?? '',
-        parameters: params,
+        input_schema: tool.inputSchema ?? { type: 'object', properties: {} },
         mode: isReadOnly ? 'read' : 'write',
       });
     }

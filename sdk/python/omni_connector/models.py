@@ -122,16 +122,12 @@ ConnectorEvent = Annotated[
 ]
 
 
-class ActionParameter(BaseModel):
-    type: str
-    required: bool = False
-    description: str | None = None
-
-
 class ActionDefinition(BaseModel):
     name: str
     description: str
-    parameters: dict[str, ActionParameter] = Field(default_factory=dict)
+    input_schema: dict[str, Any] = Field(
+        default_factory=lambda: {"type": "object", "properties": {}}
+    )
     mode: str = "write"  # "read" or "write"
 
 

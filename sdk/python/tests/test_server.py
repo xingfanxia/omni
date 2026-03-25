@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 
 from omni_connector import (
     ActionDefinition,
-    ActionParameter,
     ActionResponse,
     Connector,
     Document,
@@ -50,9 +49,13 @@ class MockConnector(Connector):
             ActionDefinition(
                 name="test_action",
                 description="A test action",
-                parameters={
-                    "param1": ActionParameter(type="string", required=True),
-                    "param2": ActionParameter(type="number", required=False),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "param1": {"type": "string"},
+                        "param2": {"type": "number"},
+                    },
+                    "required": ["param1"],
                 },
             ),
         ]

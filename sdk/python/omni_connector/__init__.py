@@ -9,7 +9,6 @@ from .exceptions import (
 )
 from .models import (
     ActionDefinition,
-    ActionParameter,
     ActionRequest,
     ActionResponse,
     CancelRequest,
@@ -49,7 +48,6 @@ __all__ = [
     "GroupMembershipSyncEvent",
     "EventType",
     "ActionDefinition",
-    "ActionParameter",
     "ActionRequest",
     "ActionResponse",
     "ConnectorManifest",

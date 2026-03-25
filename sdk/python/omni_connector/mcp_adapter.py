@@ -8,7 +8,6 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from .models import (
     ActionDefinition,
-    ActionParameter,
     ActionResponse,
     McpPromptArgument,
     McpPromptDefinition,
@@ -212,22 +211,13 @@ class McpAdapter:
         result = await session.list_tools()
         actions: list[ActionDefinition] = []
         for tool in result.tools:
-            params: dict[str, ActionParameter] = {}
-            input_schema = tool.inputSchema or {}
-            properties = input_schema.get("properties", {})
-            required_set = set(input_schema.get("required", []))
-            for param_name, param_schema in properties.items():
-                params[param_name] = ActionParameter(
-                    type=param_schema.get("type", "string"),
-                    required=param_name in required_set,
-                    description=param_schema.get("description"),
-                )
             is_read_only = bool(tool.annotations and tool.annotations.readOnlyHint)
             actions.append(
                 ActionDefinition(
                     name=tool.name,
                     description=tool.description or "",
-                    parameters=params,
+                    input_schema=tool.inputSchema
+                    or {"type": "object", "properties": {}},
                     mode="read" if is_read_only else "write",
                 )
             )

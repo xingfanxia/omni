@@ -101,17 +101,19 @@ pub fn build_manifest(connector_url: String) -> ConnectorManifest {
         actions: vec![ActionDefinition {
             name: "search_spaces".to_string(),
             description: "Search Confluence spaces or Jira projects".to_string(),
-            parameters: json!({
-                "query": {
-                    "type": "string",
-                    "required": false,
-                    "description": "Search query to filter by name or key"
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query to filter by name or key"
+                    },
+                    "type": {
+                        "type": "string",
+                        "description": "Whether to search Confluence spaces or Jira projects"
+                    }
                 },
-                "type": {
-                    "type": "string",
-                    "required": true,
-                    "description": "Whether to search Confluence spaces or Jira projects"
-                }
+                "required": ["type"]
             }),
             mode: "read".to_string(),
         }],

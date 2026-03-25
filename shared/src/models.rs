@@ -333,7 +333,7 @@ fn default_search_operator_value_type() -> String {
 pub struct ActionDefinition {
     pub name: String,
     pub description: String,
-    pub parameters: JsonValue,
+    pub input_schema: JsonValue,
     #[serde(default = "default_action_mode")]
     pub mode: String,
 }

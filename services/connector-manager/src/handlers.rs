@@ -454,7 +454,7 @@ pub async fn list_actions(
                     "source_type": source_type,
                     "name": action.name,
                     "description": action.description,
-                    "parameters": action.parameters,
+                    "input_schema": action.input_schema,
                     "mode": action.mode
                 }));
             }
