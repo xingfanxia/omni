@@ -85,7 +85,6 @@ def create_app(connector: "Connector") -> FastAPI:
         yield
 
         registration_task.cancel()
-        await connector.stop_mcp()
 
     app = FastAPI(
         title=f"Omni {connector.name} Connector",

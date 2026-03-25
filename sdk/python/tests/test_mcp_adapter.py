@@ -19,11 +19,8 @@ TEST_ENV: dict[str, str] = {"TEST_MODE": "1"}
 
 class TestMcpAdapter:
     @pytest.fixture
-    async def adapter(self):
-        adapter = McpAdapter(TEST_PARAMS)
-        await adapter.ensure_connected(TEST_ENV)
-        yield adapter
-        await adapter.disconnect()
+    def adapter(self):
+        return McpAdapter(TEST_PARAMS)
 
     async def test_get_action_definitions(self, adapter: McpAdapter):
         actions = await adapter.get_action_definitions(TEST_ENV)
@@ -85,36 +82,35 @@ class TestMcpAdapter:
         assert msg["role"] == "user"
         assert "hello world" in msg["content"]["text"]
 
-    async def test_reconnect_with_new_env(self, adapter: McpAdapter):
-        """Calling ensure_connected with different env restarts the subprocess."""
-        actions1 = await adapter.get_action_definitions(TEST_ENV)
-        assert len(actions1) == 2
-
-        # Reconnect with different env — should restart
-        await adapter.ensure_connected(env={"SOME_VAR": "value"})
-        actions2 = await adapter.get_action_definitions(env={"SOME_VAR": "value"})
-        assert len(actions2) == 2
-
-    async def test_disconnect_and_reconnect(self, adapter: McpAdapter):
-        await adapter.disconnect()
-        # Should reconnect on next call with env
-        actions = await adapter.get_action_definitions(TEST_ENV)
+    async def test_discover_caches_definitions(self, adapter: McpAdapter):
+        """discover() populates cache, then no-env calls return cached data."""
+        await adapter.discover(TEST_ENV)
+        # No env — returns from cache
+        actions = await adapter.get_action_definitions()
         assert len(actions) == 2
+        resources = await adapter.get_resource_definitions()
+        assert len(resources) == 1
+        prompts = await adapter.get_prompt_definitions()
+        assert len(prompts) == 1
+
+    async def test_no_env_no_cache_returns_empty(self, adapter: McpAdapter):
+        """Without env and without cache, returns empty lists."""
+        assert await adapter.get_action_definitions() == []
+        assert await adapter.get_resource_definitions() == []
+        assert await adapter.get_prompt_definitions() == []
 
     async def test_cache_survives_connection_failure(self):
         """After successful discovery, cache is returned if subprocess can't start."""
         adapter = McpAdapter(TEST_PARAMS)
-        # First: connect and populate cache
-        actions = await adapter.get_action_definitions(TEST_ENV)
-        assert len(actions) == 2
-        await adapter.disconnect()
+        await adapter.discover(TEST_ENV)
+        assert len(adapter._cached_actions or []) == 2
 
         # Replace command with something that will fail
         adapter._base_params = StdioServerParameters(
             command="nonexistent-binary", args=[]
         )
         # Should return cached actions instead of raising
-        cached = await adapter.get_action_definitions()
+        cached = await adapter.get_action_definitions(TEST_ENV)
         assert len(cached) == 2
         assert {a.name for a in cached} == {"greet", "add"}
 
@@ -161,27 +157,23 @@ class TestConnectorMcpIntegration:
         action_names = {a.name for a in manifest.actions}
         assert "greet" in action_names
         assert "add" in action_names
-        await mcp_connector.stop_mcp()
 
     async def test_manifest_includes_resources(self, mcp_connector: Connector):
         await mcp_connector.bootstrap_mcp({"token": "test"})
         manifest = await mcp_connector.get_manifest(connector_url="http://test:8000")
         assert len(manifest.resources) == 1
         assert manifest.resources[0].uri_template == "test://item/{item_id}"
-        await mcp_connector.stop_mcp()
 
     async def test_manifest_includes_prompts(self, mcp_connector: Connector):
         await mcp_connector.bootstrap_mcp({"token": "test"})
         manifest = await mcp_connector.get_manifest(connector_url="http://test:8000")
         assert len(manifest.prompts) == 1
         assert manifest.prompts[0].name == "summarize"
-        await mcp_connector.stop_mcp()
 
     async def test_execute_action_delegates_to_mcp(self, mcp_connector: Connector):
         result = await mcp_connector.execute_action("greet", {"name": "Omni"}, {})
         assert result.status == "success"
         assert result.result is not None
-        await mcp_connector.stop_mcp()
 
     async def test_execute_action_unknown_returns_not_supported(
         self, mcp_connector: Connector
@@ -189,7 +181,6 @@ class TestConnectorMcpIntegration:
         result = await mcp_connector.execute_action("unknown_action", {}, {})
         assert result.status == "error"
         assert "not supported" in (result.error or "").lower()
-        await mcp_connector.stop_mcp()
 
     async def test_non_mcp_connector_manifest(self):
         class PlainConnector(Connector):

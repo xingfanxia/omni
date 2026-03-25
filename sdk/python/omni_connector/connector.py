@@ -97,24 +97,25 @@ class Connector(ABC):
         return self._mcp_adapter
 
     async def bootstrap_mcp(self, credentials: dict[str, Any]) -> None:
-        """Start the MCP subprocess with credentials and cache tool definitions.
+        """Discover MCP tools/resources/prompts and cache them.
 
         Called when credentials first become available (e.g., during initial sync).
-        Populates the adapter's cache so subsequent manifest builds include tools.
+        Spawns a temporary subprocess, introspects it, caches the results, then
+        shuts down. Subsequent manifest builds use the cache.
         """
         adapter = self.mcp_adapter
         if adapter is None:
+            logger.debug("bootstrap_mcp: no MCP adapter, skipping")
             return
         env = self.prepare_mcp_env(credentials)
+        logger.info(
+            "Bootstrapping MCP: discovering tools (env keys: %s)",
+            sorted(env.keys()) if env else [],
+        )
         try:
-            await adapter.ensure_connected(env)
+            await adapter.discover(env)
         except Exception:
             logger.warning("MCP bootstrap failed", exc_info=True)
-
-    async def stop_mcp(self) -> None:
-        """Stop the MCP subprocess. Called during server shutdown."""
-        if self._mcp_adapter is not None:
-            await self._mcp_adapter.disconnect()
 
     async def _get_all_actions(self) -> list[ActionDefinition]:
         """Merge manually-defined actions with MCP-derived actions."""
