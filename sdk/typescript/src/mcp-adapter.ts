@@ -63,11 +63,12 @@ export class McpAdapter {
         };
       }
 
+      const isReadOnly = tool.annotations?.readOnlyHint === true;
       actions.push({
         name: tool.name,
         description: tool.description ?? '',
         parameters: params,
-        mode: 'write',
+        mode: isReadOnly ? 'read' : 'write',
       });
     }
 

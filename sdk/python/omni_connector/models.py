@@ -132,6 +132,7 @@ class ActionDefinition(BaseModel):
     name: str
     description: str
     parameters: dict[str, ActionParameter] = Field(default_factory=dict)
+    mode: str = "write"  # "read" or "write"
 
 
 class SearchOperator(BaseModel):

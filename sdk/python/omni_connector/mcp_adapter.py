@@ -44,11 +44,13 @@ class McpAdapter:
                     required=param_name in required_set,
                     description=param_schema.get("description"),
                 )
+            is_read_only = bool(tool.annotations and tool.annotations.readOnlyHint)
             actions.append(
                 ActionDefinition(
                     name=tool.name,
                     description=tool.description or "",
                     parameters=params,
+                    mode="read" if is_read_only else "write",
                 )
             )
         return actions

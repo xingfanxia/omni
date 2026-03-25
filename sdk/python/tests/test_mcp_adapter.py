@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 
 from omni_connector import Connector
 from omni_connector.mcp_adapter import McpAdapter
@@ -12,7 +13,7 @@ from omni_connector.mcp_adapter import McpAdapter
 def _create_test_mcp_server() -> FastMCP:
     server = FastMCP("test")
 
-    @server.tool()
+    @server.tool(annotations=ToolAnnotations(readOnlyHint=True))
     def greet(name: str) -> str:
         """Greet someone by name."""
         return f"Hello, {name}!"
@@ -55,11 +56,13 @@ class TestMcpAdapter:
         assert "name" in greet_action.parameters
         assert greet_action.parameters["name"].required is True
         assert greet_action.parameters["name"].type == "string"
+        assert greet_action.mode == "read"
 
         add_action = next(a for a in actions if a.name == "add")
         assert "a" in add_action.parameters
         assert "b" in add_action.parameters
         assert add_action.parameters["a"].required is True
+        assert add_action.mode == "write"
 
     async def test_get_resource_definitions(self, adapter: McpAdapter):
         resources = await adapter.get_resource_definitions()

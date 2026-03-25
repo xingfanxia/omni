@@ -8,10 +8,13 @@ import type { ConnectorManifest } from '../src/models.js';
 function createTestMcpServer(): McpServer {
   const server = new McpServer({ name: 'test', version: '1.0.0' });
 
-  server.tool(
+  server.registerTool(
     'greet',
-    'Greet someone by name',
-    { name: z.string().describe('Person to greet') },
+    {
+      description: 'Greet someone by name',
+      annotations: { readOnlyHint: true },
+      inputSchema: { name: z.string().describe('Person to greet') },
+    },
     async (args) => ({
       content: [{ type: 'text' as const, text: `Hello, ${args.name}!` }],
     })
@@ -71,6 +74,10 @@ describe('McpAdapter', () => {
     expect(greet.parameters.name).toBeDefined();
     expect(greet.parameters.name.type).toBe('string');
     expect(greet.parameters.name.required).toBe(true);
+    expect(greet.mode).toBe('read');
+
+    const add = actions.find((a) => a.name === 'add')!;
+    expect(add.mode).toBe('write');
   });
 
   it('converts MCP resources to resource definitions', async () => {

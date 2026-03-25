@@ -284,14 +284,37 @@ pub async fn execute_action(
         .ok_or_else(|| ApiError::NotFound(format!("Source not found: {}", request.source_id)))?
         .0;
 
-    let connector_url = get_connector_url_for_source(&state.redis_client, source_type)
-        .await
-        .ok_or_else(|| {
-            ApiError::NotFound(format!(
-                "Connector not registered for type: {:?}",
-                source_type
-            ))
-        })?;
+    // Look up the connector manifest to get connector_url and read_only flag
+    let manifests = get_registered_manifests(&state.redis_client).await;
+    let manifest = manifests
+        .iter()
+        .find(|m| m.source_types.contains(&source_type));
+
+    let connector_url = manifest.map(|m| m.connector_url.clone()).ok_or_else(|| {
+        ApiError::NotFound(format!(
+            "Connector not registered for type: {:?}",
+            source_type
+        ))
+    })?;
+
+    // Enforce read_only: block write-mode actions if connector is read-only
+    if let Some(m) = manifest {
+        if m.read_only {
+            let action_mode = m
+                .actions
+                .iter()
+                .find(|a| a.name == request.action)
+                .map(|a| a.mode.as_str())
+                .unwrap_or("write");
+
+            if action_mode == "write" {
+                return Err(ApiError::BadRequest(format!(
+                    "Action '{}' is not allowed: connector is read-only",
+                    request.action
+                )));
+            }
+        }
+    }
 
     // Get credentials
     let creds_repo = ServiceCredentialsRepo::new(state.db_pool.pool().clone())
@@ -405,11 +428,15 @@ pub async fn list_actions(
     for manifest in manifests {
         for source_type in &manifest.source_types {
             for action in &manifest.actions {
+                if manifest.read_only && action.mode == "write" {
+                    continue;
+                }
                 all_actions.push(json!({
                     "source_type": source_type,
                     "name": action.name,
                     "description": action.description,
-                    "parameters": action.parameters
+                    "parameters": action.parameters,
+                    "mode": action.mode
                 }));
             }
         }
