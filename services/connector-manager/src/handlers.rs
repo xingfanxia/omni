@@ -7,7 +7,7 @@ use crate::models::{
 use crate::sync_manager::SyncError;
 use crate::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::{
         sse::{Event, KeepAlive, Sse},
@@ -272,17 +272,16 @@ pub async fn execute_action(
         request.action, request.source_id
     );
 
-    // Get source to determine connector type
-    let source: Option<(SourceType,)> =
-        sqlx::query_as("SELECT source_type FROM sources WHERE id = $1")
+    // Get source to determine connector type and config
+    let source: Option<(SourceType, serde_json::Value)> =
+        sqlx::query_as("SELECT source_type, config FROM sources WHERE id = $1")
             .bind(&request.source_id)
             .fetch_optional(state.db_pool.pool())
             .await
             .map_err(|e| ApiError::Internal(e.to_string()))?;
 
-    let source_type = source
-        .ok_or_else(|| ApiError::NotFound(format!("Source not found: {}", request.source_id)))?
-        .0;
+    let (source_type, source_config) = source
+        .ok_or_else(|| ApiError::NotFound(format!("Source not found: {}", request.source_id)))?;
 
     // Look up the connector manifest to get connector_url and read_only flag
     let manifests = get_registered_manifests(&state.redis_client).await;
@@ -297,9 +296,14 @@ pub async fn execute_action(
         ))
     })?;
 
-    // Enforce read_only: block write-mode actions if connector is read-only
+    // Enforce read_only: block write-mode actions if connector or source is read-only
+    let source_read_only = source_config
+        .get("read_only")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
     if let Some(m) = manifest {
-        if m.read_only {
+        if m.read_only || source_read_only {
             let action_mode = m
                 .actions
                 .iter()
@@ -309,7 +313,7 @@ pub async fn execute_action(
 
             if action_mode == "write" {
                 return Err(ApiError::BadRequest(format!(
-                    "Action '{}' is not allowed: connector is read-only",
+                    "Action '{}' is not allowed: source is read-only",
                     request.action
                 )));
             }
@@ -421,14 +425,29 @@ pub async fn execute_action(
 
 pub async fn list_actions(
     State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    // If source_id is provided, check source-level read_only
+    let source_read_only = if let Some(source_id) = params.get("source_id") {
+        let row: Option<(serde_json::Value,)> =
+            sqlx::query_as("SELECT config FROM sources WHERE id = $1")
+                .bind(source_id)
+                .fetch_optional(state.db_pool.pool())
+                .await
+                .map_err(|e| ApiError::Internal(e.to_string()))?;
+        row.and_then(|(config,)| config.get("read_only").and_then(|v| v.as_bool()))
+            .unwrap_or(false)
+    } else {
+        false
+    };
+
     let manifests = get_registered_manifests(&state.redis_client).await;
     let mut all_actions = Vec::new();
 
     for manifest in manifests {
         for source_type in &manifest.source_types {
             for action in &manifest.actions {
-                if manifest.read_only && action.mode == "write" {
+                if (manifest.read_only || source_read_only) && action.mode == "write" {
                     continue;
                 }
                 all_actions.push(json!({

@@ -19,6 +19,7 @@
     let apiUrl = $state('')
     let includeDiscussions = $state(true)
     let includeForks = $state(false)
+    let readOnly = $state(false)
     let isSubmitting = $state(false)
 
     async function handleSubmit() {
@@ -31,6 +32,7 @@
             const config: GitHubSourceConfig = {
                 include_discussions: includeDiscussions,
                 include_forks: includeForks,
+                read_only: readOnly,
                 ...(apiUrl.trim() ? { api_url: apiUrl.trim() } : {}),
             }
 
@@ -72,6 +74,7 @@
             apiUrl = ''
             includeDiscussions = true
             includeForks = false
+            readOnly = false
 
             if (onSuccess) {
                 onSuccess()
@@ -90,6 +93,7 @@
         apiUrl = ''
         includeDiscussions = true
         includeForks = false
+        readOnly = false
         if (onCancel) {
             onCancel()
         }
@@ -151,6 +155,14 @@
                 <Checkbox id="include-forks" bind:checked={includeForks} class="cursor-pointer" />
                 <Label for="include-forks" class="cursor-pointer">Include Forks</Label>
                 <p class="text-muted-foreground text-sm">Also index forked repositories</p>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <Checkbox id="read-only" bind:checked={readOnly} class="cursor-pointer" />
+                <Label for="read-only" class="cursor-pointer">Read-only mode</Label>
+                <p class="text-muted-foreground text-sm">
+                    Only allow read operations (no creating issues, PRs, etc.)
+                </p>
             </div>
         </div>
 
