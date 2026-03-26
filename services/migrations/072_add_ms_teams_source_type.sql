@@ -17,8 +17,8 @@ CHECK (source_type IN (
   'share_point',
   'outlook',
   'outlook_calendar',
+  'ms_teams',
   'imap',
   'clickup',
-  'linear',
-  'ms_teams'
+  'linear'
 ));

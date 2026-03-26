@@ -227,11 +227,17 @@ export function getSourceDisplayName(sourceType: SourceType) {
         [SourceType.GITHUB]: 'GitHub',
         [SourceType.LOCAL_FILES]: 'Files',
         [SourceType.WEB]: 'Web',
+        [SourceType.HUBSPOT]: 'HubSpot',
         [SourceType.FIREFLIES]: 'Fireflies',
         [SourceType.CLICKUP]: 'ClickUp',
         [SourceType.NOTION]: 'Notion',
         [SourceType.LINEAR]: 'Linear',
+        [SourceType.ONE_DRIVE]: 'OneDrive',
+        [SourceType.SHARE_POINT]: 'SharePoint',
+        [SourceType.OUTLOOK]: 'Outlook',
+        [SourceType.OUTLOOK_CALENDAR]: 'Outlook Calendar',
         [SourceType.MS_TEAMS]: 'Teams',
+        [SourceType.IMAP]: 'IMAP',
     }
 
     return sourceDisplayNames[sourceType]

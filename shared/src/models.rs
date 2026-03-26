@@ -165,11 +165,11 @@ pub enum SourceType {
     SharePoint,
     Outlook,
     OutlookCalendar,
+    MsTeams,
     Fireflies,
     Imap,
     Clickup,
     Linear,
-    MsTeams,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, sqlx::Type, PartialEq)]
