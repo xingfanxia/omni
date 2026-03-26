@@ -45,6 +45,13 @@ class MockGraphAPI:
         self.groups: list[dict[str, Any]] = []
         self.group_members: dict[str, list[dict[str, Any]]] = {}
         self.item_permissions: dict[str, list[dict[str, Any]]] = {}
+        # Teams
+        self.teams: list[dict[str, Any]] = []
+        self.team_channels: dict[str, list[dict[str, Any]]] = {}
+        self.channel_messages: dict[str, list[dict[str, Any]]] = {}
+        self.message_replies: dict[str, list[dict[str, Any]]] = {}
+        self.channel_members: dict[str, list[dict[str, Any]]] = {}
+        self.share_drive_items: dict[str, dict[str, Any]] = {}
 
     def reset(self) -> None:
         self.users.clear()
@@ -57,6 +64,12 @@ class MockGraphAPI:
         self.groups.clear()
         self.group_members.clear()
         self.item_permissions.clear()
+        self.teams.clear()
+        self.team_channels.clear()
+        self.channel_messages.clear()
+        self.message_replies.clear()
+        self.channel_members.clear()
+        self.share_drive_items.clear()
 
     def add_user(self, user: dict[str, Any]) -> None:
         self.users.append(user)
@@ -89,6 +102,35 @@ class MockGraphAPI:
         self, drive_id: str, item_id: str, permissions: list[dict[str, Any]]
     ) -> None:
         self.item_permissions[f"{drive_id}:{item_id}"] = permissions
+
+    def add_team(self, team: dict[str, Any]) -> None:
+        self.teams.append(team)
+
+    def add_team_channel(self, team_id: str, channel: dict[str, Any]) -> None:
+        self.team_channels.setdefault(team_id, []).append(channel)
+
+    def add_channel_message(
+        self, team_id: str, channel_id: str, message: dict[str, Any]
+    ) -> None:
+        key = f"{team_id}:{channel_id}"
+        self.channel_messages.setdefault(key, []).append(message)
+
+    def add_message_reply(
+        self, team_id: str, channel_id: str, message_id: str, reply: dict[str, Any]
+    ) -> None:
+        key = f"{team_id}:{channel_id}:{message_id}"
+        self.message_replies.setdefault(key, []).append(reply)
+
+    def add_channel_member(
+        self, team_id: str, channel_id: str, member: dict[str, Any]
+    ) -> None:
+        key = f"{team_id}:{channel_id}"
+        self.channel_members.setdefault(key, []).append(member)
+
+    def set_share_drive_item(
+        self, share_token: str, drive_item: dict[str, Any]
+    ) -> None:
+        self.share_drive_items[share_token] = drive_item
 
     def create_app(self, base_url: str) -> Starlette:
         mock = self
@@ -137,6 +179,9 @@ class MockGraphAPI:
             return JSONResponse({"value": perms})
 
         async def list_groups(request: Request) -> JSONResponse:
+            filter_param = request.query_params.get("$filter", "")
+            if "MCO" in filter_param:
+                return JSONResponse({"value": mock.teams})
             return JSONResponse({"value": mock.groups})
 
         async def group_members(request: Request) -> JSONResponse:
@@ -153,6 +198,46 @@ class MockGraphAPI:
             delta_link = f"{base_url}/sites/{sid}/drive/root/delta?deltatoken=latest"
             return JSONResponse({"value": items, "@odata.deltaLink": delta_link})
 
+        async def team_channels(request: Request) -> JSONResponse:
+            tid = request.path_params["tid"]
+            channels = mock.team_channels.get(tid, [])
+            return JSONResponse({"value": channels})
+
+        async def channel_messages_delta(request: Request) -> JSONResponse:
+            tid = request.path_params["tid"]
+            cid = request.path_params["cid"]
+            key = f"{tid}:{cid}"
+            messages = mock.channel_messages.get(key, [])
+            delta_link = (
+                f"{base_url}/teams/{tid}/channels/{cid}/messages/delta"
+                f"?deltatoken=latest"
+            )
+            return JSONResponse({"value": messages, "@odata.deltaLink": delta_link})
+
+        async def message_replies(request: Request) -> JSONResponse:
+            tid = request.path_params["tid"]
+            cid = request.path_params["cid"]
+            mid = request.path_params["mid"]
+            key = f"{tid}:{cid}:{mid}"
+            replies = mock.message_replies.get(key, [])
+            return JSONResponse({"value": replies})
+
+        async def channel_members(request: Request) -> JSONResponse:
+            tid = request.path_params["tid"]
+            cid = request.path_params["cid"]
+            key = f"{tid}:{cid}"
+            members = mock.channel_members.get(key, [])
+            return JSONResponse({"value": members})
+
+        async def resolve_share(request: Request) -> JSONResponse:
+            token = request.path_params["token"]
+            drive_item = mock.share_drive_items.get(token)
+            if drive_item is None:
+                return JSONResponse(
+                    {"error": {"code": "itemNotFound"}}, status_code=404
+                )
+            return JSONResponse(drive_item)
+
         routes = [
             Route("/v1.0/organization", organization),
             Route("/v1.0/users", list_users),
@@ -168,6 +253,17 @@ class MockGraphAPI:
             Route("/v1.0/groups/{gid}/members", group_members),
             Route("/v1.0/sites", list_sites),
             Route("/v1.0/sites/{sid}/drive/root/delta", site_drive_delta),
+            Route("/v1.0/teams/{tid}/channels", team_channels),
+            Route(
+                "/v1.0/teams/{tid}/channels/{cid}/messages/delta",
+                channel_messages_delta,
+            ),
+            Route(
+                "/v1.0/teams/{tid}/channels/{cid}/messages/{mid}/replies",
+                message_replies,
+            ),
+            Route("/v1.0/teams/{tid}/channels/{cid}/members", channel_members),
+            Route("/v1.0/shares/{token}/driveItem", resolve_share),
         ]
         return Starlette(routes=routes)
 
@@ -246,6 +342,8 @@ def connector_server(connector_port: int) -> str:
     import os
 
     os.environ.setdefault("CONNECTOR_MANAGER_URL", "http://localhost:0")
+    os.environ.setdefault("CONNECTOR_HOST_NAME", "localhost")
+    os.environ.setdefault("PORT", str(connector_port))
 
     from ms_connector import MicrosoftConnector
     from omni_connector.server import create_app
@@ -333,6 +431,15 @@ async def outlook_calendar_source_id(
     return await _create_ms_source(
         seed, mock_graph_server, mock_graph_api, "outlook_calendar"
     )
+
+
+@pytest_asyncio.fixture
+async def ms_teams_source_id(
+    seed: SeedHelper,
+    mock_graph_server: str,
+    mock_graph_api: MockGraphAPI,
+) -> str:
+    return await _create_ms_source(seed, mock_graph_server, mock_graph_api, "ms_teams")
 
 
 @pytest_asyncio.fixture

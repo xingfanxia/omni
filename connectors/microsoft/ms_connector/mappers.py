@@ -1,9 +1,25 @@
 """Map Microsoft Graph API responses to Omni Document models."""
 
-from datetime import datetime, timezone
-from typing import Any
+from __future__ import annotations
+
+import re
+from datetime import date, datetime, timezone
+from typing import TYPE_CHECKING, Any
 
 from omni_connector import Document, DocumentMetadata, DocumentPermissions
+
+if TYPE_CHECKING:
+    from .syncers.teams import TeamsMessageGroup
+
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def strip_html(html: str) -> str:
+    """Naive HTML tag stripping for message/event bodies."""
+    text = _HTML_TAG_RE.sub(" ", html)
+    text = _WHITESPACE_RE.sub(" ", text)
+    return text.strip()
 
 
 def map_drive_item_to_document(
@@ -335,10 +351,7 @@ def generate_event_content(event: dict[str, Any]) -> str:
         lines.append("")
         content = body["content"]
         if body.get("contentType", "").lower() == "html":
-            import re
-
-            content = re.sub(r"<[^>]+>", " ", content)
-            content = re.sub(r"\s+", " ", content).strip()
+            content = strip_html(content)
         lines.append(content)
 
     return "\n".join(lines)
@@ -351,6 +364,69 @@ def _parse_iso(value: str | None) -> datetime | None:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except (ValueError, TypeError):
         return None
+
+
+def map_teams_messages_to_document(
+    group: TeamsMessageGroup,
+    content_id: str,
+) -> Document:
+    """Map a group of Teams channel messages to an Omni Document."""
+    external_id = group.external_id
+
+    if group.is_thread:
+        title = f"Thread in {group.channel_name} - {group.team_name}"
+    else:
+        title = f"{group.channel_name} - {group.team_name} - {group.date}"
+
+    authors = sorted(set(group.authors))
+
+    return Document(
+        external_id=external_id,
+        title=title,
+        content_id=content_id,
+        metadata=DocumentMetadata(
+            author=authors[0] if len(authors) == 1 else "Multiple authors",
+            created_at=group.first_timestamp,
+            updated_at=group.last_timestamp,
+            content_type="message",
+            mime_type="text/plain",
+            path=f"{group.team_name}/{group.channel_name}",
+            extra={
+                "teams": {
+                    "team_id": group.team_id,
+                    "channel_id": group.channel_id,
+                    "message_count": group.message_count,
+                    "authors": authors,
+                    "date": str(group.date),
+                }
+            },
+        ),
+        permissions=group.permissions,
+        attributes={
+            "source_type": "ms_teams",
+            "team_name": group.team_name,
+            "channel_name": group.channel_name,
+            "is_thread": group.is_thread,
+        },
+    )
+
+
+def generate_teams_message_content(
+    messages: list[tuple[dict[str, Any], str]],
+) -> str:
+    """Generate searchable text content from Teams messages.
+
+    Each entry is (raw_message_dict, sender_display_name).
+    """
+    lines = []
+    for msg, sender_name in messages:
+        timestamp = msg.get("createdDateTime", "")
+        body = msg.get("body", {})
+        content = body.get("content", "")
+        if body.get("contentType", "").lower() == "html":
+            content = strip_html(content)
+        lines.append(f"{sender_name} [{timestamp}]: {content}")
+    return "\n\n".join(lines)
 
 
 def _parse_graph_datetime(dt_obj: dict[str, Any] | None) -> datetime | None:

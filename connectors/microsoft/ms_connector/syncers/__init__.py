@@ -4,5 +4,12 @@ from .calendar import CalendarSyncer
 from .mail import MailSyncer
 from .onedrive import OneDriveSyncer
 from .sharepoint import SharePointSyncer
+from .teams import TeamsSyncer
 
-__all__ = ["OneDriveSyncer", "MailSyncer", "CalendarSyncer", "SharePointSyncer"]
+__all__ = [
+    "OneDriveSyncer",
+    "MailSyncer",
+    "CalendarSyncer",
+    "SharePointSyncer",
+    "TeamsSyncer",
+]

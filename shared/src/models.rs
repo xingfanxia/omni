@@ -165,6 +165,7 @@ pub enum SourceType {
     SharePoint,
     Outlook,
     OutlookCalendar,
+    MsTeams,
     Fireflies,
     Imap,
     Clickup,
