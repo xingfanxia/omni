@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 
 import redis.asyncio as aioredis
 from pydantic import ValidationError
@@ -64,18 +65,36 @@ _MAX_DISPLAYED_VALUES = 20
 _OPERATOR_VALUES_CACHE_KEY = "search:operator_values"
 _OPERATOR_VALUES_CACHE_TTL = 300  # 5 minutes
 
+# In-memory cache so the hot path (every LLM call) is a timestamp check, not a Redis round-trip.
+_operator_values_mem: dict[str, list[str]] = {}
+_operator_values_mem_ts: float = 0
+
 
 async def fetch_operator_values(
     searcher_client: SearcherClient,
     search_operators: list[dict],
     redis_client: aioredis.Redis | None = None,
 ) -> dict[str, list[str]]:
-    """Fetch and cache distinct values for dynamic search operators."""
+    """Fetch and cache distinct values for dynamic search operators.
+
+    Cache hierarchy: in-memory (instant) → Redis (network) → searcher API (DB query).
+    """
+    global _operator_values_mem, _operator_values_mem_ts
+
+    now = time.monotonic()
+    if (
+        _operator_values_mem
+        and (now - _operator_values_mem_ts) < _OPERATOR_VALUES_CACHE_TTL
+    ):
+        return _operator_values_mem
+
     if redis_client:
         try:
             cached = await redis_client.get(_OPERATOR_VALUES_CACHE_KEY)
             if cached:
-                return json.loads(cached)
+                _operator_values_mem = json.loads(cached)
+                _operator_values_mem_ts = now
+                return _operator_values_mem
         except Exception as e:
             logger.warning(f"Failed to read operator values cache: {e}")
 
@@ -92,6 +111,9 @@ async def fetch_operator_values(
     except Exception as e:
         logger.warning(f"Failed to fetch operator values from searcher: {e}")
         return {}
+
+    _operator_values_mem = values
+    _operator_values_mem_ts = now
 
     if redis_client and values:
         try:
