@@ -165,6 +165,11 @@ pub struct PeopleSearchResponse {
     pub people: Vec<PersonResult>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct AttributeValuesResponse {
+    pub attributes: std::collections::HashMap<String, Vec<String>>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

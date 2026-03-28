@@ -535,29 +535,36 @@ impl SearchDocumentRepository {
         keys: &[String],
         limit: i64,
     ) -> Result<HashMap<String, Vec<String>>, DatabaseError> {
-        let mut result: HashMap<String, Vec<String>> = HashMap::new();
-
-        for key in keys {
-            let rows: Vec<(String,)> = sqlx::query_as(
-                r#"
-                SELECT DISTINCT attributes->>$1 AS val
-                FROM documents
-                WHERE attributes ? $1 AND attributes->>$1 IS NOT NULL
-                ORDER BY val
-                LIMIT $2
-                "#,
-            )
-            .bind(key)
-            .bind(limit)
-            .fetch_all(&self.pool)
-            .await?;
-
-            let values: Vec<String> = rows.into_iter().map(|(v,)| v).collect();
-            if !values.is_empty() {
-                result.insert(key.clone(), values);
-            }
+        if keys.is_empty() {
+            return Ok(HashMap::new());
         }
 
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            r#"
+            SELECT key, val FROM (
+                SELECT
+                    key,
+                    val,
+                    ROW_NUMBER() OVER (PARTITION BY key ORDER BY val) AS rn
+                FROM (
+                    SELECT DISTINCT k AS key, attributes->>k AS val
+                    FROM documents, UNNEST($1::text[]) AS k
+                    WHERE attributes ? k AND attributes->>k IS NOT NULL
+                ) distinct_vals
+            ) ranked
+            WHERE rn <= $2
+            ORDER BY key, val
+            "#,
+        )
+        .bind(keys)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut result: HashMap<String, Vec<String>> = HashMap::new();
+        for (key, val) in rows {
+            result.entry(key).or_default().push(val);
+        }
         Ok(result)
     }
 }

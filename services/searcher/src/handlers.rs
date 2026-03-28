@@ -1,6 +1,7 @@
 use crate::models::{
-    PeopleSearchResponse, PersonResult, RecentSearchesRequest, SearchRequest,
-    SuggestedQuestionsRequest, SuggestedQuestionsResponse, TypeaheadQuery, TypeaheadResponse,
+    AttributeValuesResponse, PeopleSearchResponse, PersonResult, RecentSearchesRequest,
+    SearchRequest, SuggestedQuestionsRequest, SuggestedQuestionsResponse, TypeaheadQuery,
+    TypeaheadResponse,
 };
 use crate::search::SearchEngine;
 use crate::search_repository::SearchDocumentRepository;
@@ -355,7 +356,7 @@ pub struct AttributeValuesQuery {
 pub async fn attribute_values(
     State(state): State<AppState>,
     Query(query): Query<AttributeValuesQuery>,
-) -> SearcherResult<Json<Value>> {
+) -> SearcherResult<Json<AttributeValuesResponse>> {
     let keys: Vec<String> = query
         .keys
         .split(',')
@@ -371,10 +372,10 @@ pub async fn attribute_values(
 
     let limit = query.limit.unwrap_or(25).min(100);
     let repo = SearchDocumentRepository::new(state.db_pool.pool());
-    let values = repo
+    let attributes = repo
         .get_distinct_attribute_values(&keys, limit)
         .await
         .map_err(|e| SearcherError::Internal(anyhow!("Failed to fetch attribute values: {}", e)))?;
 
-    Ok(Json(json!({ "attributes": values })))
+    Ok(Json(AttributeValuesResponse { attributes }))
 }
