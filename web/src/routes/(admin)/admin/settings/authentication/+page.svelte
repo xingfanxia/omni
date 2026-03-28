@@ -101,11 +101,11 @@
                                         return async ({ result, update }) => {
                                             oktaIsSubmitting = false
                                             await update()
+                                            oktaEnabled = data.okta.enabled
                                             if (result.type === 'success') {
                                                 toast.success(
                                                     result.data?.message || 'Okta SSO disabled',
                                                 )
-                                                oktaEnabled = false
                                                 oktaShowForm = false
                                             } else if (result.type === 'failure') {
                                                 toast.error(
@@ -150,9 +150,11 @@
                                     return async ({ result, update }) => {
                                         oktaIsSubmitting = false
                                         await update()
+                                        oktaEnabled = data.okta.enabled
                                         if (result.type === 'success') {
-                                            toast.success(result.data?.message || 'Settings saved')
-                                            oktaEnabled = true
+                                            toast.success(
+                                                result.data?.message || 'Okta SSO enabled',
+                                            )
                                             oktaClientSecret = ''
                                             oktaShowForm = false
                                         } else if (result.type === 'failure') {
@@ -273,11 +275,11 @@
                                     return async ({ result, update }) => {
                                         isSubmitting = false
                                         await update()
+                                        enabled = data.google.enabled
                                         if (result.type === 'success') {
                                             toast.success(
                                                 result.data?.message || 'Google Auth disabled',
                                             )
-                                            enabled = false
                                             showForm = false
                                         } else if (result.type === 'failure') {
                                             toast.error(
@@ -317,9 +319,9 @@
                                 return async ({ result, update }) => {
                                     isSubmitting = false
                                     await update()
+                                    enabled = data.google.enabled
                                     if (result.type === 'success') {
-                                        toast.success(result.data?.message || 'Settings saved')
-                                        enabled = true
+                                        toast.success(result.data?.message || 'Google Auth enabled')
                                         clientSecret = ''
                                         showForm = false
                                     } else if (result.type === 'failure') {
@@ -417,9 +419,14 @@
                                 return async ({ result, update }) => {
                                     passwordIsSubmitting = false
                                     await update()
+                                    passwordEnabled = data.passwordAuthEnabled
                                     if (result.type === 'success') {
-                                        toast.success(result.data?.message || 'Settings saved')
-                                        passwordEnabled = !passwordEnabled
+                                        toast.success(
+                                            result.data?.message ||
+                                                (passwordEnabled
+                                                    ? 'Password auth enabled'
+                                                    : 'Password auth disabled'),
+                                        )
                                     } else if (result.type === 'failure') {
                                         toast.error(result.data?.error || 'Something went wrong')
                                     }

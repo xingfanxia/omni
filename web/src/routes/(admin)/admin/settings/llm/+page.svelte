@@ -237,6 +237,7 @@
                                         {provider.name}
                                     </span>
                                     <Badge
+                                        variant="secondary"
                                         class="border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-400">
                                         <span
                                             class="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-green-500"
@@ -292,7 +293,7 @@
                                 </span>
                                 {#if provider.models.length > 0}
                                     <Button
-                                        variant="ghost"
+                                        variant="link"
                                         size="sm"
                                         class={cn(
                                             'h-auto cursor-pointer px-1.5 py-0.5 text-xs font-medium transition-opacity',
@@ -711,12 +712,9 @@
                         <Checkbox
                             id="isDefaultModel"
                             name="isDefault"
+                            value="true"
                             checked={modelFormState.isDefault}
                             onCheckedChange={(v) => (modelFormState.isDefault = v === true)} />
-                        <input
-                            type="hidden"
-                            name="isDefault"
-                            value={modelFormState.isDefault ? 'true' : ''} />
                         <Label for="isDefaultModel" class="font-normal">Set as default model</Label>
                     </div>
 
@@ -724,12 +722,9 @@
                         <Checkbox
                             id="isSecondaryModel"
                             name="isSecondary"
+                            value="true"
                             checked={modelFormState.isSecondary}
                             onCheckedChange={(v) => (modelFormState.isSecondary = v === true)} />
-                        <input
-                            type="hidden"
-                            name="isSecondary"
-                            value={modelFormState.isSecondary ? 'true' : ''} />
                         <Label for="isSecondaryModel" class="font-normal">
                             Set as secondary (lightweight) model
                         </Label>

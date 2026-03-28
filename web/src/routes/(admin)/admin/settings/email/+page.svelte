@@ -183,6 +183,7 @@
                                     </div>
                                     <div class="mt-1 flex items-center gap-1.5">
                                         <Badge
+                                            variant="secondary"
                                             class="border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-400">
                                             <span
                                                 class="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-green-500"
@@ -520,12 +521,9 @@
                             <Checkbox
                                 id="secure"
                                 name="secure"
+                                value="true"
                                 checked={formState.secure}
                                 onCheckedChange={(v) => (formState.secure = v === true)} />
-                            <input
-                                type="hidden"
-                                name="secure"
-                                value={formState.secure ? 'true' : ''} />
                             <Label for="secure" class="font-normal">Use TLS/SSL</Label>
                         </div>
                         <div class="space-y-2">
