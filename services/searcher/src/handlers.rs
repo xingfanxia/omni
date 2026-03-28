@@ -3,6 +3,7 @@ use crate::models::{
     SuggestedQuestionsRequest, SuggestedQuestionsResponse, TypeaheadQuery, TypeaheadResponse,
 };
 use crate::search::SearchEngine;
+use crate::search_repository::SearchDocumentRepository;
 use crate::suggested_questions::{self, SuggestedQuestionsGenerator};
 use crate::{AppState, Result as SearcherResult, SearcherError};
 use anyhow::anyhow;
@@ -343,4 +344,37 @@ pub async fn people_search(
         .collect();
 
     Ok(Json(PeopleSearchResponse { people }))
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct AttributeValuesQuery {
+    pub keys: String,
+    pub limit: Option<i64>,
+}
+
+pub async fn attribute_values(
+    State(state): State<AppState>,
+    Query(query): Query<AttributeValuesQuery>,
+) -> SearcherResult<Json<Value>> {
+    let keys: Vec<String> = query
+        .keys
+        .split(',')
+        .map(|k| k.trim().to_string())
+        .filter(|k| !k.is_empty())
+        .collect();
+
+    if keys.is_empty() {
+        return Err(SearcherError::BadRequest(
+            "keys parameter is required".to_string(),
+        ));
+    }
+
+    let limit = query.limit.unwrap_or(25).min(100);
+    let repo = SearchDocumentRepository::new(state.db_pool.pool());
+    let values = repo
+        .get_distinct_attribute_values(&keys, limit)
+        .await
+        .map_err(|e| SearcherError::Internal(anyhow!("Failed to fetch attribute values: {}", e)))?;
+
+    Ok(Json(json!({ "attributes": values })))
 }

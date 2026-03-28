@@ -175,6 +175,27 @@ class SearcherClient:
             logger.error(f"People search failed: {e}")
             raise
 
+    async def get_attribute_values(
+        self, keys: list[str], limit: int = 25
+    ) -> dict[str, list[str]]:
+        """Fetch distinct values for the given attribute keys from the index."""
+        try:
+            response = await self.client.get(
+                f"{self.searcher_url}/attributes/values",
+                params={"keys": ",".join(keys), "limit": limit},
+            )
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("attributes", {})
+            else:
+                logger.error(
+                    f"Attribute values fetch error: {response.status_code} - {response.text}"
+                )
+                return {}
+        except Exception as e:
+            logger.error(f"Failed to fetch attribute values: {e}")
+            return {}
+
     async def close(self):
         """Close the HTTP client"""
         await self.client.aclose()

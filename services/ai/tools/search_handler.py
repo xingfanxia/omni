@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
 
+import redis.asyncio as aioredis
 from pydantic import ValidationError
 from anthropic.types import (
     TextBlockParam,
@@ -13,7 +15,12 @@ from anthropic.types import (
 
 from models.chat import SearchToolParams
 from tools.searcher_tool import SearcherTool
-from tools.searcher_client import SearchRequest, SearchResponse, SearchResult
+from tools.searcher_client import (
+    SearcherClient,
+    SearchRequest,
+    SearchResponse,
+    SearchResult,
+)
 from tools.registry import ToolContext, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -23,30 +30,138 @@ _TOOL_NAMES = {"search_documents"}
 # Operators already documented as universal — exclude from connector-specific lists
 _UNIVERSAL_OPERATORS = {"by", "in", "from", "type", "before", "after"}
 
+# Maps source_type (as stored in db) to the aliases accepted by the in: operator
+SOURCE_TYPE_IN_ALIASES: dict[str, list[str]] = {
+    "google_drive": ["drive", "gdrive"],
+    "gmail": ["gmail", "email"],
+    "slack": ["slack"],
+    "confluence": ["confluence", "wiki"],
+    "jira": ["jira"],
+    "github": ["github", "gh"],
+    "notion": ["notion"],
+    "one_drive": ["onedrive"],
+    "share_point": ["sharepoint"],
+    "outlook": ["outlook"],
+    "hubspot": ["hubspot"],
+    "fireflies": ["fireflies"],
+    "clickup": ["clickup"],
+    "web": ["web"],
+}
+
+TYPE_VALID_VALUES = [
+    "sheet",
+    "doc",
+    "slide",
+    "pdf",
+    "issue",
+    "pr",
+    "page",
+    "email",
+    "meeting",
+]
+
+_MAX_DISPLAYED_VALUES = 20
+_OPERATOR_VALUES_CACHE_KEY = "search:operator_values"
+_OPERATOR_VALUES_CACHE_TTL = 300  # 5 minutes
+
+
+async def fetch_operator_values(
+    searcher_client: SearcherClient,
+    search_operators: list[dict],
+    redis_client: aioredis.Redis | None = None,
+) -> dict[str, list[str]]:
+    """Fetch and cache distinct values for dynamic search operators."""
+    if redis_client:
+        try:
+            cached = await redis_client.get(_OPERATOR_VALUES_CACHE_KEY)
+            if cached:
+                return json.loads(cached)
+        except Exception as e:
+            logger.warning(f"Failed to read operator values cache: {e}")
+
+    attribute_keys = [
+        op["attribute_key"]
+        for op in search_operators
+        if op["operator"] not in _UNIVERSAL_OPERATORS and op.get("attribute_key")
+    ]
+    if not attribute_keys:
+        return {}
+
+    try:
+        values = await searcher_client.get_attribute_values(attribute_keys)
+    except Exception as e:
+        logger.warning(f"Failed to fetch operator values from searcher: {e}")
+        return {}
+
+    if redis_client and values:
+        try:
+            await redis_client.set(
+                _OPERATOR_VALUES_CACHE_KEY,
+                json.dumps(values),
+                ex=_OPERATOR_VALUES_CACHE_TTL,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to cache operator values: {e}")
+
+    return values
+
 
 def _build_query_description(
     search_operators: list[dict],
+    connected_source_types: list[str] | None = None,
+    operator_values: dict[str, list[str]] | None = None,
 ) -> str:
     """Build a rich description for the query parameter with operator syntax."""
+    # Build in: values filtered to connected sources
+    if connected_source_types:
+        in_aliases = []
+        for st in connected_source_types:
+            aliases = SOURCE_TYPE_IN_ALIASES.get(st)
+            if aliases:
+                in_aliases.append(aliases[0])  # primary alias
+        in_values_str = (
+            f". Values: {', '.join(sorted(in_aliases))}" if in_aliases else ""
+        )
+    else:
+        in_values_str = ""
+
+    type_values_str = ", ".join(TYPE_VALID_VALUES)
+
     lines = [
         "The search query. Supports inline operators for filtering:",
         "",
         "Universal operators:",
-        "- in:<source> — filter by app (e.g., in:slack, in:drive, in:jira)",
+        f"- in:<source> — filter by app{in_values_str}",
         "- by:<person> — filter by author/creator",
         "- from:<person> — filter by sender (emails, messages)",
-        "- type:<type> — content type (sheet, doc, pdf, email, issue, pr, meeting, slide, page)",
+        f"- type:<type> — content type. Values: {type_values_str}",
         "- before:<date> / after:<date> — date range (YYYY-MM-DD, YYYY-MM, or YYYY)",
         "Date keywords (no operator needed): last week, last month, this week, yesterday, today",
     ]
 
     # Group connector-specific operators by source_type
     ops_by_source: dict[str, list[str]] = {}
+    # Build a lookup from attribute_key to operator name for value mapping
+    attr_key_to_operator: dict[str, str] = {}
     for op in search_operators:
         if op["operator"] in _UNIVERSAL_OPERATORS:
             continue
         display_name = op.get("display_name", op.get("source_type", ""))
-        ops_by_source.setdefault(display_name, []).append(f"{op['operator']}:<value>")
+        attr_key = op.get("attribute_key", "")
+        operator_name = op["operator"]
+        attr_key_to_operator[attr_key] = operator_name
+
+        # Build operator text with values if available
+        values = (operator_values or {}).get(attr_key, []) if attr_key else []
+        if values:
+            displayed = values[:_MAX_DISPLAYED_VALUES]
+            suffix = ", ..." if len(values) > _MAX_DISPLAYED_VALUES else ""
+            values_str = f" ({', '.join(displayed)}{suffix})"
+        else:
+            values_str = ""
+        ops_by_source.setdefault(display_name, []).append(
+            f"{operator_name}:<value>{values_str}"
+        )
 
     if ops_by_source:
         lines.append("")
@@ -59,15 +174,26 @@ def _build_query_description(
     lines.append(
         'Examples: "status:done in:jira sprint tasks", "type:pdf after:2024-01 invoice", "budget last week"'
     )
+    lines.append("")
+    lines.append(
+        "Important: Boolean operators (AND, OR, NOT) are NOT supported. "
+        "Use multiple inline operators in the same query instead."
+    )
 
     return "\n".join(lines)
 
 
 def _build_search_tools(
     search_operators: list[dict] | None = None,
+    connected_source_types: list[str] | None = None,
+    operator_values: dict[str, list[str]] | None = None,
 ) -> list[dict]:
     """Build the search tool definition with dynamic operators."""
-    query_desc = _build_query_description(search_operators or [])
+    query_desc = _build_query_description(
+        search_operators or [],
+        connected_source_types=connected_source_types,
+        operator_values=operator_values,
+    )
 
     return [
         {
@@ -102,9 +228,15 @@ class SearchToolHandler:
         self,
         searcher_tool: SearcherTool,
         search_operators: list[dict] | None = None,
+        connected_source_types: list[str] | None = None,
+        operator_values: dict[str, list[str]] | None = None,
     ) -> None:
         self._searcher = searcher_tool
-        self._tools = _build_search_tools(search_operators)
+        self._tools = _build_search_tools(
+            search_operators,
+            connected_source_types=connected_source_types,
+            operator_values=operator_values,
+        )
 
     def get_tools(self) -> list[dict]:
         return self._tools

@@ -98,6 +98,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/typeahead", get(handlers::typeahead))
         .route("/people/search", get(handlers::people_search))
         .route("/suggested-questions", post(handlers::suggested_questions))
+        .route("/attributes/values", get(handlers::attribute_values))
         .layer(
             ServiceBuilder::new()
                 .layer(middleware::from_fn(telemetry::middleware::trace_layer))

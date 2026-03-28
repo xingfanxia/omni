@@ -40,6 +40,7 @@ from tools import (
 from tools.connector_handler import ConnectorAction
 from tools.email_handler import EmailToolHandler
 from tools.sandbox_handler import SandboxToolHandler
+from tools.search_handler import fetch_operator_values
 
 from .models import Agent, AgentRun
 from .repository import AgentRunRepository
@@ -122,10 +123,22 @@ async def _build_agent_registry(
     if CONNECTOR_MANAGER_URL and connector_actions:
         search_operators = connector_handler.search_operators
 
+    active_sources = [s for s in (sources or []) if s.is_active and not s.is_deleted]
+    connected_source_types = list({s.source_type for s in active_sources})
+    operator_values: dict[str, list[str]] = {}
+    if search_operators:
+        operator_values = await fetch_operator_values(
+            app_state.searcher_tool.client,
+            search_operators,
+            redis_client=app_state.redis_client,
+        )
+
     registry.register(
         SearchToolHandler(
             searcher_tool=app_state.searcher_tool,
             search_operators=search_operators,
+            connected_source_types=connected_source_types,
+            operator_values=operator_values,
         )
     )
 
@@ -180,25 +193,33 @@ async def _run_agent_loop(
     registry, connector_actions = await _build_agent_registry(app_state, agent, sources)
     all_tools = registry.get_all_tools()
 
+    # Org agents search all data (no user-scoping); personal agents are scoped to owner
+    # Using run ID as chat_id — tool handlers use this to scope sandbox workspaces and cache keys
+    is_org_agent = agent.agent_type == "org"
+    agent_user_email: str | None = None
+    agent_user_name: str | None = None
+    if not is_org_agent and agent.user_id:
+        users_repo = UsersRepository()
+        agent_user = await users_repo.find_by_id(agent.user_id)
+        if agent_user:
+            agent_user_email = agent_user.email
+            agent_user_name = agent_user.full_name
+
     # Build system prompt
     active_sources = [s for s in (sources or []) if s.is_active and not s.is_deleted]
-    system_prompt = build_agent_system_prompt(agent, active_sources, connector_actions)
+    system_prompt = build_agent_system_prompt(
+        agent,
+        active_sources,
+        connector_actions,
+        user_name=agent_user_name if not is_org_agent else None,
+        user_email=agent_user_email if not is_org_agent else None,
+    )
 
     # Initialize conversation with a single trigger message
     conversation_messages: list[MessageParam] = [
         MessageParam(role="user", content="Execute your scheduled task now.")
     ]
     execution_log: list[MessageParam] = list(conversation_messages)
-
-    # Org agents search all data (no user-scoping); personal agents are scoped to owner
-    # Using run ID as chat_id — tool handlers use this to scope sandbox workspaces and cache keys
-    is_org_agent = agent.agent_type == "org"
-    agent_user_email: str | None = None
-    if not is_org_agent and agent.user_id:
-        users_repo = UsersRepository()
-        agent_user = await users_repo.find_by_id(agent.user_id)
-        if agent_user:
-            agent_user_email = agent_user.email
 
     context = ToolContext(
         chat_id=run.id,

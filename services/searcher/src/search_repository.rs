@@ -529,6 +529,37 @@ impl SearchDocumentRepository {
         let facet_rows = query_builder.fetch_all(&self.pool).await?;
         Ok(rows_to_facets(facet_rows))
     }
+
+    pub async fn get_distinct_attribute_values(
+        &self,
+        keys: &[String],
+        limit: i64,
+    ) -> Result<HashMap<String, Vec<String>>, DatabaseError> {
+        let mut result: HashMap<String, Vec<String>> = HashMap::new();
+
+        for key in keys {
+            let rows: Vec<(String,)> = sqlx::query_as(
+                r#"
+                SELECT DISTINCT attributes->>$1 AS val
+                FROM documents
+                WHERE attributes ? $1 AND attributes->>$1 IS NOT NULL
+                ORDER BY val
+                LIMIT $2
+                "#,
+            )
+            .bind(key)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?;
+
+            let values: Vec<String> = rows.into_iter().map(|(v,)| v).collect();
+            if !values.is_empty() {
+                result.insert(key.clone(), values);
+            }
+        }
+
+        Ok(result)
+    }
 }
 
 fn rows_to_facets(rows: Vec<(String, String, i64)>) -> Vec<Facet> {

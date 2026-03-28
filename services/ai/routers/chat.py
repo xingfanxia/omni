@@ -24,6 +24,7 @@ from tools import (
 )
 from tools.connector_handler import ConnectorAction
 from tools.sandbox_handler import SandboxToolHandler
+from tools.search_handler import fetch_operator_values
 from config import (
     DEFAULT_MAX_TOKENS,
     DEFAULT_TEMPERATURE,
@@ -206,11 +207,24 @@ async def _build_registry(request: Request, chat: Chat) -> RegistryResult:
         if connector_handler.search_operators:
             search_operators = connector_handler.search_operators
 
+    # Fetch dynamic operator values for enriched search tool description
+    active_sources = [s for s in (sources or []) if s.is_active and not s.is_deleted]
+    connected_source_types = list({s.source_type for s in active_sources})
+    operator_values: dict[str, list[str]] = {}
+    if search_operators:
+        operator_values = await fetch_operator_values(
+            request.app.state.searcher_tool.client,
+            search_operators,
+            redis_client=getattr(request.app.state, "redis_client", None),
+        )
+
     # Register search tools (with dynamic operators from connector manifests)
     registry.register(
         SearchToolHandler(
             searcher_tool=request.app.state.searcher_tool,
             search_operators=search_operators,
+            connected_source_types=connected_source_types,
+            operator_values=operator_values,
         )
     )
 
@@ -309,13 +323,15 @@ async def stream_chat(
 
     llm_provider = _resolve_llm_provider(request.app.state, chat)
 
-    # Resolve user email for permission checks
+    # Resolve user info for permission checks and system prompt
     user_email: str | None = None
+    user_name: str | None = None
     if chat.user_id:
         users_repo = UsersRepository()
         user = await users_repo.find_by_id(chat.user_id)
         if user:
             user_email = user.email
+            user_name = user.full_name
 
     messages_repo = MessagesRepository()
     chat_messages = await messages_repo.get_active_path(chat_id)
@@ -369,7 +385,10 @@ async def stream_chat(
         s for s in (build_result.sources or []) if s.is_active and not s.is_deleted
     ]
     system_prompt = build_chat_system_prompt(
-        active_sources, build_result.connector_actions
+        active_sources,
+        build_result.connector_actions,
+        user_name=user_name,
+        user_email=user_email,
     )
 
     # Stream AI response with tool calling
