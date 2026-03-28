@@ -167,7 +167,7 @@ pub struct PeopleSearchResponse {
 
 #[derive(Debug, Serialize)]
 pub struct AttributeValuesResponse {
-    pub attributes: std::collections::HashMap<String, Vec<String>>,
+    pub attributes: HashMap<String, Vec<String>>,
 }
 
 #[cfg(test)]
