@@ -80,7 +80,7 @@ export interface SearchResult {
 
 export interface FacetValue {
     value: string
-    count: number
+    count?: number
 }
 
 export interface Facet {
@@ -95,6 +95,7 @@ export interface SearchResponse {
     has_more: boolean
     query: string
     facets?: Facet[]
+    active_filters?: Facet[]
 }
 
 export interface SearchRequest {

@@ -44,13 +44,27 @@ const GOOGLE_SLIDES_MIMETYPES = [
     'application/vnd.ms-powerpoint',
 ]
 
+const SOURCE_TYPE_ICONS: Record<string, string> = {
+    [SourceType.GOOGLE_DRIVE]: googleDriveIcon,
+    [SourceType.GMAIL]: gmailIcon,
+    [SourceType.SLACK]: slackIcon,
+    [SourceType.CONFLUENCE]: confluenceIcon,
+    [SourceType.JIRA]: jiraIcon,
+    [SourceType.FIREFLIES]: firefliesIcon,
+    [SourceType.HUBSPOT]: hubspotIcon,
+    [SourceType.ONE_DRIVE]: oneDriveIcon,
+    [SourceType.OUTLOOK]: outlookIcon,
+    [SourceType.OUTLOOK_CALENDAR]: outlookIcon,
+    [SourceType.SHARE_POINT]: sharePointIcon,
+    [SourceType.MS_TEAMS]: teamsIcon,
+    [SourceType.LINEAR]: linearIcon,
+    [SourceType.GITHUB]: githubIcon,
+    [SourceType.CLICKUP]: clickupIcon,
+    [SourceType.NOTION]: notionIcon,
+}
+
 // Get icon based on source type and content type
 export function getDocumentIconPath(sourceType: string, contentType: string): string | null {
-    // For Gmail, always use Gmail icon
-    if (sourceType === SourceType.GMAIL) {
-        return gmailIcon
-    }
-
     // For Google Drive, check content type to determine specific icon
     if (sourceType === SourceType.GOOGLE_DRIVE) {
         if (contentType === 'document' || GOOGLE_DOCS_MIMETYPES.includes(contentType)) {
@@ -62,69 +76,14 @@ export function getDocumentIconPath(sourceType: string, contentType: string): st
         if (contentType === 'presentation' || GOOGLE_SLIDES_MIMETYPES.includes(contentType)) {
             return googleSlidesIcon
         }
-        // Default to generic Google Drive icon for other file types
         return googleDriveIcon
-    } else if (sourceType === SourceType.CONFLUENCE) {
-        return confluenceIcon
-    } else if (sourceType === SourceType.JIRA) {
-        return jiraIcon
-    } else if (sourceType === SourceType.SLACK) {
-        return slackIcon
-    } else if (sourceType === SourceType.FIREFLIES) {
-        return firefliesIcon
-    } else if (sourceType === SourceType.HUBSPOT) {
-        return hubspotIcon
-    } else if (sourceType === SourceType.NOTION) {
-        return notionIcon
-    } else if (sourceType === SourceType.LINEAR) {
-        return linearIcon
     }
 
-    // For other source types, return null (will use fallback icon)
-    return null
+    return SOURCE_TYPE_ICONS[sourceType] ?? null
 }
 
-// Map source types to icon file paths (legacy function, kept for backward compatibility)
 export function getSourceIconPath(sourceType: string): string | null {
-    switch (sourceType) {
-        case SourceType.GOOGLE_DRIVE:
-            return googleDriveIcon
-        case SourceType.GMAIL:
-            return gmailIcon
-        case SourceType.SLACK:
-            return slackIcon
-        case SourceType.CONFLUENCE:
-            return confluenceIcon
-        case SourceType.JIRA:
-            return jiraIcon
-        case SourceType.FIREFLIES:
-            return firefliesIcon
-        case SourceType.HUBSPOT:
-            return hubspotIcon
-        case SourceType.ONE_DRIVE:
-            return oneDriveIcon
-        case SourceType.OUTLOOK:
-        case SourceType.OUTLOOK_CALENDAR:
-            return outlookIcon
-        case SourceType.SHARE_POINT:
-            return sharePointIcon
-        case SourceType.MS_TEAMS:
-            return teamsIcon
-        case SourceType.LINEAR:
-            return linearIcon
-        case SourceType.GITHUB:
-            return githubIcon
-        case SourceType.LOCAL_FILES:
-            return null // Use fallback FileText icon
-        case SourceType.IMAP:
-            return null // Uses Mail lucide icon
-        case SourceType.CLICKUP:
-            return clickupIcon
-        case SourceType.NOTION:
-            return notionIcon
-        default:
-            return null // Use fallback FileText icon
-    }
+    return SOURCE_TYPE_ICONS[sourceType] ?? null
 }
 
 // Get source type from source ID using sources lookup
