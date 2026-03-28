@@ -284,7 +284,7 @@
                         <Search class="mx-auto mb-4 h-12 w-12 text-gray-400" />
                         <h3 class="mb-2 text-lg font-medium text-gray-900">No results found</h3>
                         <p class="mb-4 text-gray-600">
-                            {#if getTotalSelectedFilters() > 0}
+                            {#if selectedSourceTypes.size > 0}
                                 No results found with the current filters. Try clearing filters or
                                 adjusting your search.
                             {:else}
@@ -292,7 +292,7 @@
                                 connected and indexed.
                             {/if}
                         </p>
-                        {#if getTotalSelectedFilters() > 0}
+                        {#if selectedSourceTypes.size > 0}
                             <Button
                                 variant="outline"
                                 onclick={clearFilters}
@@ -332,7 +332,7 @@
                             <div class="flex-1">Filter by Source</div>
                             <Funnel class="h-4 w-4" />
                         </h3>
-                        {#if activeSourceTypes.size > 0}
+                        {#if selectedSourceTypes.size > 0}
                             <Button
                                 variant="ghost"
                                 size="sm"
@@ -389,7 +389,7 @@
                     </div>
                 </div>
 
-                {#if getTotalSelectedFilters() > 0}
+                {#if selectedSourceTypes.size > 0}
                     <div class="mt-4">
                         <Button
                             variant="outline"
