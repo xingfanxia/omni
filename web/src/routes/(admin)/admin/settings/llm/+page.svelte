@@ -7,17 +7,7 @@
     import * as Alert from '$lib/components/ui/alert'
     import * as AlertDialog from '$lib/components/ui/alert-dialog'
     import * as Dialog from '$lib/components/ui/dialog'
-    import {
-        CheckCircle2,
-        Loader2,
-        Info,
-        Pencil,
-        Trash2,
-        Star,
-        Zap,
-        Server,
-        Plus,
-    } from '@lucide/svelte'
+    import { Loader2, Info, Pencil, Trash2, Server, X } from '@lucide/svelte'
     import { cn } from '$lib/utils'
     import { toast } from 'svelte-sonner'
     import type { PageData } from './$types'
@@ -83,6 +73,9 @@
     let modelDialogOpen = $state(false)
     let modelFormState = $state<ModelFormState>({ ...emptyModelForm })
     let isModelSubmitting = $state(false)
+
+    let manageMode = $state<Record<string, boolean>>({})
+    let roleForms = $state<Record<string, HTMLFormElement>>({})
 
     let confirmDialogOpen = $state(false)
     let confirmTitle = $state('')
@@ -161,6 +154,14 @@
         ) as Record<ProviderType, (typeof data.providers)[0] | null>,
     )
 
+    let connectedProviders = $derived(
+        providerTypes
+            .filter((t) => providerByType[t] !== null)
+            .map((t) => ({ type: t, provider: providerByType[t]!, meta: providerMeta[t] })),
+    )
+
+    let unconfiguredTypes = $derived(providerTypes.filter((t) => providerByType[t] === null))
+
     function openSetupDialog(type: ProviderType) {
         editMode = false
         editingHasApiKey = false
@@ -206,6 +207,11 @@
         }
         modelDialogOpen = true
     }
+
+    function handleRoleCycle(model: { id: string; isDefault: boolean; isSecondary: boolean }) {
+        const key = model.isDefault ? `secondary-${model.id}` : `default-${model.id}`
+        roleForms[key]?.requestSubmit()
+    }
 </script>
 
 <div class="h-full overflow-y-auto p-6 py-8 pb-24">
@@ -217,182 +223,232 @@
             </p>
         </div>
 
-        <!-- Provider Cards -->
-        <div class="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
-            {#each providerTypes as type}
-                {@const provider = providerByType[type]}
-                {@const meta = providerMeta[type]}
-                <Card.Root>
-                    <Card.Header class="flex flex-row items-start justify-between space-y-0 pb-2">
-                        <div class="flex items-start gap-3">
+        <!-- Connected Provider Cards -->
+        {#if connectedProviders.length > 0}
+            <div class="space-y-4">
+                {#each connectedProviders as { type, provider, meta } (provider.id)}
+                    <Card.Root>
+                        <Card.Header class="pb-2">
+                            <div class="flex items-center gap-3">
+                                {#if meta.icon}
+                                    <img src={meta.icon} alt={meta.label} class="h-8 w-8" />
+                                {:else}
+                                    <Server class="text-muted-foreground h-8 w-8" />
+                                {/if}
+                                <div>
+                                    <div class="text-base leading-tight font-semibold">
+                                        {provider.name}
+                                    </div>
+                                    <div
+                                        class="mt-0.5 flex items-center gap-1.5 text-xs font-medium text-green-600">
+                                        <span
+                                            class="inline-block h-1.5 w-1.5 rounded-full bg-green-500"
+                                        ></span>
+                                        Connected
+                                    </div>
+                                </div>
+                            </div>
+                            <Card.Action>
+                                <div class="flex items-center gap-1">
+                                    <button
+                                        type="button"
+                                        class="text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer rounded-md p-1.5 transition-colors"
+                                        title="Edit provider"
+                                        onclick={() => openEditDialog(provider)}>
+                                        <Pencil class="h-4 w-4" />
+                                    </button>
+                                    <form
+                                        method="POST"
+                                        action="?/delete"
+                                        use:enhance={enhanceWithToast}>
+                                        <input type="hidden" name="id" value={provider.id} />
+                                        <button
+                                            type="button"
+                                            class="text-muted-foreground hover:bg-accent cursor-pointer rounded-md p-1.5 transition-colors hover:text-red-500"
+                                            title="Remove provider"
+                                            onclick={(e) => {
+                                                const form = (
+                                                    e.currentTarget as HTMLElement
+                                                ).closest('form')!
+                                                requestConfirm(
+                                                    'Remove Provider',
+                                                    `Are you sure you want to remove "${provider.name}" and all its models? This action cannot be undone.`,
+                                                    form as HTMLFormElement,
+                                                )
+                                            }}>
+                                            <Trash2 class="h-4 w-4" />
+                                        </button>
+                                    </form>
+                                </div>
+                            </Card.Action>
+                        </Card.Header>
+
+                        <Card.Content class="pb-0">
+                            <!-- Models section header -->
+                            <div class="flex items-center justify-between px-1">
+                                <span
+                                    class="text-muted-foreground text-[11px] font-semibold tracking-wider uppercase">
+                                    Models
+                                </span>
+                                {#if provider.models.length > 0}
+                                    <button
+                                        type="button"
+                                        class={cn(
+                                            'cursor-pointer text-xs font-medium transition-colors',
+                                            manageMode[provider.id]
+                                                ? 'text-primary'
+                                                : 'text-muted-foreground hover:text-foreground',
+                                        )}
+                                        onclick={() =>
+                                            (manageMode[provider.id] = !manageMode[provider.id])}>
+                                        {manageMode[provider.id] ? 'Done' : 'Manage'}
+                                    </button>
+                                {/if}
+                            </div>
+
+                            <!-- Model list -->
+                            {#if provider.models.length > 0}
+                                <div class="mt-1 space-y-0.5">
+                                    {#each provider.models as model (model.id)}
+                                        <!-- Hidden forms for role cycling -->
+                                        <form
+                                            method="POST"
+                                            action="?/setDefaultModel"
+                                            use:enhance={enhanceWithToast}
+                                            class="hidden"
+                                            bind:this={roleForms[`default-${model.id}`]}>
+                                            <input type="hidden" name="id" value={model.id} />
+                                        </form>
+                                        <form
+                                            method="POST"
+                                            action="?/setSecondaryModel"
+                                            use:enhance={enhanceWithToast}
+                                            class="hidden"
+                                            bind:this={roleForms[`secondary-${model.id}`]}>
+                                            <input type="hidden" name="id" value={model.id} />
+                                        </form>
+
+                                        <div
+                                            class="flex items-center justify-between rounded-md px-1 py-2">
+                                            <div class="flex items-start gap-3">
+                                                <!-- Role dot -->
+                                                {#if manageMode[provider.id]}
+                                                    <button
+                                                        type="button"
+                                                        class="mt-1 cursor-pointer p-0.5"
+                                                        title="Cycle role"
+                                                        onclick={() => handleRoleCycle(model)}>
+                                                        <span
+                                                            class={cn(
+                                                                'block h-2.5 w-2.5 rounded-full ring-2 transition-all',
+                                                                model.isDefault
+                                                                    ? 'bg-amber-400 ring-amber-100 dark:ring-amber-400/20'
+                                                                    : model.isSecondary
+                                                                      ? 'bg-blue-500 ring-blue-100 dark:ring-blue-500/20'
+                                                                      : 'bg-zinc-300 ring-zinc-100 dark:bg-zinc-600 dark:ring-zinc-600/20',
+                                                            )}></span>
+                                                    </button>
+                                                {:else}
+                                                    <span
+                                                        class={cn(
+                                                            'mt-1.5 block h-2.5 w-2.5 rounded-full',
+                                                            model.isDefault
+                                                                ? 'bg-amber-400'
+                                                                : model.isSecondary
+                                                                  ? 'bg-blue-500'
+                                                                  : 'bg-zinc-300 dark:bg-zinc-600',
+                                                        )}></span>
+                                                {/if}
+
+                                                <div>
+                                                    <div class="text-sm font-medium">
+                                                        {model.displayName}
+                                                    </div>
+                                                    {#if model.isDefault}
+                                                        <div
+                                                            class="text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                                                            Default
+                                                        </div>
+                                                    {:else if model.isSecondary}
+                                                        <div
+                                                            class="text-[11px] font-medium text-blue-600 dark:text-blue-400">
+                                                            Secondary
+                                                        </div>
+                                                    {/if}
+                                                </div>
+                                            </div>
+
+                                            <!-- Delete button in manage mode -->
+                                            {#if manageMode[provider.id]}
+                                                <form
+                                                    method="POST"
+                                                    action="?/deleteModel"
+                                                    use:enhance={enhanceWithToast}>
+                                                    <input
+                                                        type="hidden"
+                                                        name="id"
+                                                        value={model.id} />
+                                                    <button
+                                                        type="button"
+                                                        class="text-muted-foreground cursor-pointer rounded-full p-1 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950"
+                                                        title="Remove model"
+                                                        onclick={(e) => {
+                                                            const form = (
+                                                                e.currentTarget as HTMLElement
+                                                            ).closest('form')!
+                                                            requestConfirm(
+                                                                'Remove Model',
+                                                                `Are you sure you want to remove "${model.displayName}"? Existing chats using this model will fall back to the default.`,
+                                                                form as HTMLFormElement,
+                                                            )
+                                                        }}>
+                                                        <X class="h-3.5 w-3.5" />
+                                                    </button>
+                                                </form>
+                                            {/if}
+                                        </div>
+                                    {/each}
+                                </div>
+                            {/if}
+
+                            <button
+                                type="button"
+                                class="text-muted-foreground hover:text-foreground mt-1 inline-flex cursor-pointer items-center gap-1.5 px-1 text-sm font-medium transition-colors"
+                                onclick={() => openAddModelDialog(provider.id)}>
+                                <span class="text-base leading-none">+</span>
+                                Add model
+                            </button>
+                        </Card.Content>
+                    </Card.Root>
+                {/each}
+            </div>
+        {/if}
+
+        <!-- Connect a Provider -->
+        {#if unconfiguredTypes.length > 0}
+            <div class="space-y-3">
+                <h2 class="text-lg font-semibold">Connect a Provider</h2>
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {#each unconfiguredTypes as type}
+                        {@const meta = providerMeta[type]}
+                        <button
+                            type="button"
+                            class="border-border hover:border-foreground/20 hover:bg-accent/50 flex cursor-pointer items-center gap-3 rounded-xl border border-dashed p-4 text-left transition-colors"
+                            onclick={() => openSetupDialog(type)}>
                             {#if meta.icon}
                                 <img src={meta.icon} alt={meta.label} class="h-8 w-8" />
                             {:else}
                                 <Server class="text-muted-foreground h-8 w-8" />
                             {/if}
                             <div>
-                                <Card.Title class="text-lg">
-                                    {meta.label}
-                                </Card.Title>
-                                {#if provider}
-                                    <div class="flex items-center gap-1.5 text-sm text-green-600">
-                                        <CheckCircle2 class="h-3.5 w-3.5" />
-                                        Connected
-                                    </div>
-                                {:else}
-                                    <Card.Description>{meta.description}</Card.Description>
-                                {/if}
+                                <div class="text-sm font-medium">{meta.label}</div>
+                                <div class="text-muted-foreground text-xs">{meta.description}</div>
                             </div>
-                        </div>
-                    </Card.Header>
-                    <Card.Content>
-                        {#if provider}
-                            <!-- Models list -->
-                            {#if provider.models.length > 0}
-                                <div class="mb-3 space-y-1">
-                                    <p class="text-muted-foreground text-xs font-medium uppercase">
-                                        Models
-                                    </p>
-                                    {#each provider.models as model}
-                                        <div
-                                            class="flex items-center justify-between rounded-md px-2 py-1.5 text-sm">
-                                            <div class="flex items-center gap-2">
-                                                {#if model.isDefault}
-                                                    <Star
-                                                        class="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
-                                                {:else}
-                                                    <form
-                                                        method="POST"
-                                                        action="?/setDefaultModel"
-                                                        use:enhance={enhanceWithToast}>
-                                                        <input
-                                                            type="hidden"
-                                                            name="id"
-                                                            value={model.id} />
-                                                        <button
-                                                            type="submit"
-                                                            class="cursor-pointer"
-                                                            title="Set as default">
-                                                            <Star
-                                                                class="text-muted-foreground h-3.5 w-3.5 hover:text-yellow-400" />
-                                                        </button>
-                                                    </form>
-                                                {/if}
-                                                {#if model.isSecondary}
-                                                    <Zap
-                                                        class="h-3.5 w-3.5 fill-blue-400 text-blue-400" />
-                                                {:else}
-                                                    <form
-                                                        method="POST"
-                                                        action="?/setSecondaryModel"
-                                                        use:enhance={enhanceWithToast}>
-                                                        <input
-                                                            type="hidden"
-                                                            name="id"
-                                                            value={model.id} />
-                                                        <button
-                                                            type="submit"
-                                                            class="cursor-pointer"
-                                                            title="Set as secondary (lightweight) model">
-                                                            <Zap
-                                                                class="text-muted-foreground h-3.5 w-3.5 hover:text-blue-400" />
-                                                        </button>
-                                                    </form>
-                                                {/if}
-                                                <span>{model.displayName}</span>
-                                                {#if model.isDefault}
-                                                    <span
-                                                        class="bg-primary/10 text-primary rounded-full px-1.5 py-0.5 text-xs">
-                                                        Default
-                                                    </span>
-                                                {/if}
-                                                {#if model.isSecondary}
-                                                    <span
-                                                        class="rounded-full bg-blue-500/10 px-1.5 py-0.5 text-xs text-blue-600">
-                                                        Secondary
-                                                    </span>
-                                                {/if}
-                                            </div>
-                                            <form
-                                                method="POST"
-                                                action="?/deleteModel"
-                                                use:enhance={enhanceWithToast}>
-                                                <input type="hidden" name="id" value={model.id} />
-                                                <button
-                                                    type="button"
-                                                    class="cursor-pointer text-red-400 hover:text-red-600"
-                                                    title="Remove model"
-                                                    onclick={(e) => {
-                                                        const form = (
-                                                            e.currentTarget as HTMLElement
-                                                        ).closest('form')!
-                                                        requestConfirm(
-                                                            'Remove Model',
-                                                            `Are you sure you want to remove "${model.displayName}"? Existing chats using this model will fall back to the default.`,
-                                                            form as HTMLFormElement,
-                                                        )
-                                                    }}>
-                                                    <Trash2 class="h-3.5 w-3.5" />
-                                                </button>
-                                            </form>
-                                        </div>
-                                    {/each}
-                                </div>
-                            {/if}
-
-                            <div class="flex flex-wrap gap-2">
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    class="cursor-pointer gap-1"
-                                    onclick={() => openAddModelDialog(provider.id)}>
-                                    <Plus class="h-3 w-3" />
-                                    Add Model
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    class="cursor-pointer gap-1"
-                                    onclick={() => openEditDialog(provider)}>
-                                    <Pencil class="h-3 w-3" />
-                                    Edit
-                                </Button>
-                                <form
-                                    method="POST"
-                                    action="?/delete"
-                                    use:enhance={enhanceWithToast}>
-                                    <input type="hidden" name="id" value={provider.id} />
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="sm"
-                                        class="cursor-pointer gap-1 text-red-600 hover:text-red-700"
-                                        onclick={(e) => {
-                                            const form = (e.currentTarget as HTMLElement).closest(
-                                                'form',
-                                            )!
-                                            requestConfirm(
-                                                'Remove Provider',
-                                                `Are you sure you want to remove "${provider.name}" and all its models? This action cannot be undone.`,
-                                                form as HTMLFormElement,
-                                            )
-                                        }}>
-                                        <Trash2 class="h-3 w-3" />
-                                        Remove
-                                    </Button>
-                                </form>
-                            </div>
-                        {:else}
-                            <Button
-                                class="mt-1 cursor-pointer gap-2"
-                                onclick={() => openSetupDialog(type)}>
-                                Connect
-                            </Button>
-                        {/if}
-                    </Card.Content>
-                </Card.Root>
-            {/each}
-        </div>
+                        </button>
+                    {/each}
+                </div>
+            </div>
+        {/if}
 
         <!-- Provider Setup / Edit Dialog (connection fields only) -->
         <Dialog.Root bind:open={dialogOpen}>
