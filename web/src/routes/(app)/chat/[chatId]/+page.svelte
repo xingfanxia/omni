@@ -90,6 +90,7 @@
     let bottomPadding = $state(80)
 
     let processedMessages = $derived(processMessages(chatMessages))
+    let lastUserMessageIndex = $derived(processedMessages.findLastIndex((m) => m.role === 'user'))
 
     function copyMessageToClipboard(message: ProcessedMessage) {
         const content = message.content
@@ -583,29 +584,21 @@
     function recalcBottomPadding() {
         if (!lastUserMessageRef || !chatContainerRef) return
         const containerHeight = chatContainerRef.clientHeight
-        // Content from the user message top to the bottom of all content
-        const contentBelowMessage =
-            chatContainerRef.scrollHeight -
-            (lastUserMessageRef.offsetTop - chatContainerRef.offsetTop)
-        bottomPadding = Math.max(80, containerHeight - contentBelowMessage)
+        const userMsgTop = lastUserMessageRef.offsetTop - chatContainerRef.offsetTop
+        const contentHeight = chatContainerRef.scrollHeight - bottomPadding
+        // Pad so that max scroll aligns the last user message near the top of the viewport
+        bottomPadding = Math.max(0, userMsgTop + containerHeight - contentHeight)
     }
 
     function scrollUserMessageToTop() {
         requestAnimationFrame(() => {
-            if (lastUserMessageRef && chatContainerRef) {
-                // Before the assistant response exists, pad so user msg can reach the top
-                const containerHeight = chatContainerRef.clientHeight
-                const messageHeight = lastUserMessageRef.offsetHeight
-                bottomPadding = Math.max(80, containerHeight - messageHeight - 24)
-
-                requestAnimationFrame(() => {
-                    if (lastUserMessageRef && chatContainerRef) {
-                        const messageTop =
-                            lastUserMessageRef.offsetTop - chatContainerRef.offsetTop - 24
-                        chatContainerRef.scrollTo({ top: messageTop, behavior: 'smooth' })
-                    }
-                })
-            }
+            recalcBottomPadding()
+            requestAnimationFrame(() => {
+                if (lastUserMessageRef && chatContainerRef) {
+                    const messageTop = lastUserMessageRef.offsetTop - chatContainerRef.offsetTop
+                    chatContainerRef.scrollTo({ top: messageTop, behavior: 'smooth' })
+                }
+            })
         })
     }
 
@@ -1280,7 +1273,7 @@
             {#each processedMessages as message, i (message.id)}
                 {#if message.role === 'user'}
                     <!-- User Message -->
-                    {#if i === processedMessages.length - 1}
+                    {#if i === lastUserMessageIndex}
                         <div
                             class="group mt-8 flex flex-col items-end"
                             bind:this={lastUserMessageRef}>
