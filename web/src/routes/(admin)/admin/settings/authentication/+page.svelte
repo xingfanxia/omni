@@ -21,16 +21,16 @@
     let isSubmitting = $state(false)
     let showForm = $state(false)
 
-    let oktaEnabled = $state(data.okta.enabled)
-    let oktaDomain = $state(data.okta.oktaDomain)
-    let oktaClientId = $state(data.okta.clientId)
+    let oktaEnabled = $state(data.okta?.enabled ?? false)
+    let oktaDomain = $state(data.okta?.oktaDomain ?? '')
+    let oktaClientId = $state(data.okta?.clientId ?? '')
     let oktaClientSecret = $state('')
     let oktaIsSubmitting = $state(false)
     let oktaShowForm = $state(false)
 
-    let entraEnabled = $state(data.entra.enabled)
-    let entraTenant = $state(data.entra.tenant)
-    let entraClientId = $state(data.entra.clientId)
+    let entraEnabled = $state(data.entra?.enabled ?? false)
+    let entraTenant = $state(data.entra?.tenant ?? '')
+    let entraClientId = $state(data.entra?.clientId ?? '')
     let entraClientSecret = $state('')
     let entraIsSubmitting = $state(false)
     let entraShowForm = $state(false)
@@ -86,7 +86,7 @@
             {#if data.oktaSsoAvailable}
                 <Card.Root>
                     <Card.Header
-                        class={oktaShowForm || (!data.okta.enabled && !oktaEnabled) ? 'pb-2' : ''}>
+                        class={oktaShowForm || (!data.okta?.enabled && !oktaEnabled) ? 'pb-2' : ''}>
                         <div class="flex items-center gap-3">
                             <img src={oktaIcon} alt="Okta" class="h-8 w-8" />
                             <div>
@@ -118,7 +118,7 @@
                                         return async ({ result, update }) => {
                                             oktaIsSubmitting = false
                                             await update()
-                                            oktaEnabled = data.okta.enabled
+                                            oktaEnabled = data.okta?.enabled
                                             if (result.type === 'success') {
                                                 toast.success(
                                                     result.data?.message || 'Okta SSO disabled',
@@ -149,11 +149,11 @@
                             <div class="min-w-0 space-y-1 text-sm">
                                 <div class="flex gap-1">
                                     <span class="text-muted-foreground shrink-0">Domain:</span>
-                                    <span class="truncate font-mono">{data.okta.oktaDomain}</span>
+                                    <span class="truncate font-mono">{data.okta?.oktaDomain}</span>
                                 </div>
                                 <div class="flex gap-1">
                                     <span class="text-muted-foreground shrink-0">Client ID:</span>
-                                    <span class="truncate font-mono">{data.okta.clientId}</span>
+                                    <span class="truncate font-mono">{data.okta?.clientId}</span>
                                 </div>
                             </div>
                         </Card.Content>
@@ -167,7 +167,7 @@
                                     return async ({ result, update }) => {
                                         oktaIsSubmitting = false
                                         await update()
-                                        oktaEnabled = data.okta.enabled
+                                        oktaEnabled = data.okta?.enabled
                                         if (result.type === 'success') {
                                             toast.success(
                                                 result.data?.message || 'Okta SSO enabled',
@@ -216,17 +216,17 @@
 
                                 <div class="space-y-2">
                                     <Label for="oktaClientSecret">
-                                        Client Secret {data.okta.hasClientSecret ? '' : '*'}
+                                        Client Secret {data.okta?.hasClientSecret ? '' : '*'}
                                     </Label>
                                     <Input
                                         id="oktaClientSecret"
                                         name="clientSecret"
                                         type="password"
                                         bind:value={oktaClientSecret}
-                                        placeholder={data.okta.hasClientSecret
+                                        placeholder={data.okta?.hasClientSecret
                                             ? 'Leave empty to keep current secret'
                                             : 'Enter client secret'}
-                                        required={!data.okta.hasClientSecret} />
+                                        required={!data.okta?.hasClientSecret} />
                                 </div>
 
                                 <div class="flex justify-end gap-2">
@@ -236,7 +236,7 @@
                                         class="cursor-pointer"
                                         onclick={() => {
                                             oktaShowForm = false
-                                            if (!data.okta.enabled) oktaEnabled = false
+                                            if (!data.okta?.enabled) oktaEnabled = false
                                         }}>
                                         Cancel
                                     </Button>
@@ -262,7 +262,7 @@
             {#if data.entraSsoAvailable}
                 <Card.Root>
                     <Card.Header
-                        class={entraShowForm || (!data.entra.enabled && !entraEnabled)
+                        class={entraShowForm || (!data.entra?.enabled && !entraEnabled)
                             ? 'pb-2'
                             : ''}>
                         <div class="flex items-center gap-3">
@@ -298,7 +298,7 @@
                                         return async ({ result, update }) => {
                                             entraIsSubmitting = false
                                             await update()
-                                            entraEnabled = data.entra.enabled
+                                            entraEnabled = data.entra?.enabled
                                             if (result.type === 'success') {
                                                 toast.success(
                                                     result.data?.message || 'Entra SSO disabled',
@@ -329,11 +329,11 @@
                             <div class="min-w-0 space-y-1 text-sm">
                                 <div class="flex gap-1">
                                     <span class="text-muted-foreground shrink-0">Tenant:</span>
-                                    <span class="truncate font-mono">{data.entra.tenant}</span>
+                                    <span class="truncate font-mono">{data.entra?.tenant}</span>
                                 </div>
                                 <div class="flex gap-1">
                                     <span class="text-muted-foreground shrink-0">Client ID:</span>
-                                    <span class="truncate font-mono">{data.entra.clientId}</span>
+                                    <span class="truncate font-mono">{data.entra?.clientId}</span>
                                 </div>
                             </div>
                         </Card.Content>
@@ -347,7 +347,7 @@
                                     return async ({ result, update }) => {
                                         entraIsSubmitting = false
                                         await update()
-                                        entraEnabled = data.entra.enabled
+                                        entraEnabled = data.entra?.enabled
                                         if (result.type === 'success') {
                                             toast.success(
                                                 result.data?.message || 'Entra SSO enabled',
@@ -397,17 +397,17 @@
 
                                 <div class="space-y-2">
                                     <Label for="entraClientSecret">
-                                        Client Secret {data.entra.hasClientSecret ? '' : '*'}
+                                        Client Secret {data.entra?.hasClientSecret ? '' : '*'}
                                     </Label>
                                     <Input
                                         id="entraClientSecret"
                                         name="clientSecret"
                                         type="password"
                                         bind:value={entraClientSecret}
-                                        placeholder={data.entra.hasClientSecret
+                                        placeholder={data.entra?.hasClientSecret
                                             ? 'Leave empty to keep current secret'
                                             : 'Enter client secret'}
-                                        required={!data.entra.hasClientSecret} />
+                                        required={!data.entra?.hasClientSecret} />
                                 </div>
 
                                 <div class="flex justify-end gap-2">
@@ -417,7 +417,7 @@
                                         class="cursor-pointer"
                                         onclick={() => {
                                             entraShowForm = false
-                                            if (!data.entra.enabled) entraEnabled = false
+                                            if (!data.entra?.enabled) entraEnabled = false
                                         }}>
                                         Cancel
                                     </Button>

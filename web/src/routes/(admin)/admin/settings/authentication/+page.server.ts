@@ -39,7 +39,7 @@ export const load: PageServerLoad = async ({ locals }) => {
                   clientId: okta.clientId,
                   hasClientSecret: !!okta.clientSecret,
               }
-            : { enabled: false, oktaDomain: '', clientId: '', hasClientSecret: false },
+            : null,
         entraSsoAvailable,
         entra: entra
             ? {
@@ -48,7 +48,7 @@ export const load: PageServerLoad = async ({ locals }) => {
                   clientId: entra.clientId,
                   hasClientSecret: !!entra.clientSecret,
               }
-            : { enabled: false, tenant: '', clientId: '', hasClientSecret: false },
+            : null,
     }
 }
 
