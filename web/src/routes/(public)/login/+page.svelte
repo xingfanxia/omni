@@ -13,6 +13,7 @@
     import type { ActionData } from './$types.js'
     import googleIcon from '$lib/images/icons/google.svg'
     import oktaIcon from '$lib/images/icons/okta.svg'
+    import microsoftIcon from '$lib/images/icons/microsoft.svg'
 
     export let form: ActionData
     export let data: any
@@ -46,7 +47,7 @@
             </div>
         {/if}
 
-        {#if data?.googleAuthEnabled || data?.oktaAuthEnabled}
+        {#if data?.googleAuthEnabled || data?.oktaAuthEnabled || data?.entraAuthEnabled}
             <div class="flex flex-col gap-2">
                 {#if data?.googleAuthEnabled}
                     <Button
@@ -62,6 +63,16 @@
                     <Button variant="outline" class="w-full cursor-pointer gap-2" href="/auth/okta">
                         <img src={oktaIcon} alt="Okta" class="h-4 w-4" />
                         Sign in with Okta
+                    </Button>
+                {/if}
+
+                {#if data?.entraAuthEnabled}
+                    <Button
+                        variant="outline"
+                        class="w-full cursor-pointer gap-2"
+                        href="/auth/entra">
+                        <img src={microsoftIcon} alt="Microsoft" class="h-4 w-4" />
+                        Sign in with Microsoft
                     </Button>
                 {/if}
             </div>

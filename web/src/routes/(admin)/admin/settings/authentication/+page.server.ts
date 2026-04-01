@@ -4,10 +4,12 @@ import { requireAdmin } from '$lib/server/authHelpers'
 import {
     getGoogleAuthConfig,
     getOktaAuthConfig,
+    getEntraAuthConfig,
     isPasswordAuthEnabled,
     updateAuthProvider,
 } from '$lib/server/db/auth-providers'
 import { loadOktaOAuthService } from '$lib/server/oauth/okta'
+import { loadEntraOAuthService } from '$lib/server/oauth/entra'
 import { UserOAuthCredentialsService } from '$lib/server/oauth/userCredentials'
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -15,7 +17,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 
     const google = await getGoogleAuthConfig()
     const okta = await getOktaAuthConfig()
+    const entra = await getEntraAuthConfig()
     const oktaSsoAvailable = (await loadOktaOAuthService()) !== null
+    const entraSsoAvailable = (await loadEntraOAuthService()) !== null
     const passwordAuthEnabled = await isPasswordAuthEnabled()
 
     return {
@@ -36,6 +40,15 @@ export const load: PageServerLoad = async ({ locals }) => {
                   hasClientSecret: !!okta.clientSecret,
               }
             : { enabled: false, oktaDomain: '', clientId: '', hasClientSecret: false },
+        entraSsoAvailable,
+        entra: entra
+            ? {
+                  enabled: entra.enabled,
+                  tenant: entra.tenant,
+                  clientId: entra.clientId,
+                  hasClientSecret: !!entra.clientSecret,
+              }
+            : { enabled: false, tenant: '', clientId: '', hasClientSecret: false },
     }
 }
 
@@ -139,6 +152,57 @@ export const actions: Actions = {
         return { success: true, message: 'Okta SSO disabled' }
     },
 
+    updateEntra: async ({ request, locals }) => {
+        requireAdmin(locals)
+
+        const formData = await request.formData()
+        const enabled = formData.get('enabled') === 'true'
+        const tenant = (formData.get('tenant') as string)?.trim()
+        const clientId = (formData.get('clientId') as string)?.trim()
+        const clientSecret = (formData.get('clientSecret') as string) || ''
+
+        if (enabled) {
+            if (!tenant) {
+                return fail(400, { error: 'Tenant ID is required when enabling Entra SSO' })
+            }
+            if (!clientId) {
+                return fail(400, { error: 'Client ID is required when enabling Entra SSO' })
+            }
+
+            const existing = await getEntraAuthConfig()
+            const secretToSave = clientSecret || existing?.clientSecret
+
+            if (!secretToSave) {
+                return fail(400, {
+                    error: 'Client Secret is required when enabling Entra SSO',
+                })
+            }
+
+            await updateAuthProvider(
+                'entra',
+                true,
+                { tenant, clientId, clientSecret: secretToSave },
+                locals.user!.id,
+            )
+
+            return { success: true, message: 'Entra SSO enabled' }
+        }
+
+        const existing = await getEntraAuthConfig()
+        await updateAuthProvider(
+            'entra',
+            false,
+            {
+                tenant: tenant || existing?.tenant || '',
+                clientId: clientId || existing?.clientId || '',
+                clientSecret: clientSecret || existing?.clientSecret || '',
+            },
+            locals.user!.id,
+        )
+
+        return { success: true, message: 'Entra SSO disabled' }
+    },
+
     updatePassword: async ({ request, locals }) => {
         requireAdmin(locals)
 
@@ -148,10 +212,12 @@ export const actions: Actions = {
         if (!enabled) {
             const google = await getGoogleAuthConfig()
             const okta = await getOktaAuthConfig()
+            const entra = await getEntraAuthConfig()
             const googleEnabled = google?.enabled ?? false
             const oktaEnabled = okta?.enabled ?? false
+            const entraEnabled = entra?.enabled ?? false
 
-            if (!googleEnabled && !oktaEnabled) {
+            if (!googleEnabled && !oktaEnabled && !entraEnabled) {
                 return fail(400, {
                     error: 'Cannot disable password authentication when no other authentication method is enabled.',
                 })
@@ -162,7 +228,7 @@ export const actions: Actions = {
             )
             if (oauthCredentials.length === 0) {
                 return fail(400, {
-                    error: 'You must sign in with Google or Okta at least once before disabling password authentication, to avoid locking yourself out.',
+                    error: 'You must sign in with an SSO provider at least once before disabling password authentication, to avoid locking yourself out.',
                 })
             }
         }

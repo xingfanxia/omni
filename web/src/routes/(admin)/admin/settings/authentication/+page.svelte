@@ -11,6 +11,7 @@
     import type { PageData } from './$types'
     import googleIcon from '$lib/images/icons/google.svg'
     import oktaIcon from '$lib/images/icons/okta.svg'
+    import microsoftIcon from '$lib/images/icons/microsoft.svg'
 
     let { data }: { data: PageData } = $props()
 
@@ -27,10 +28,18 @@
     let oktaIsSubmitting = $state(false)
     let oktaShowForm = $state(false)
 
+    let entraEnabled = $state(data.entra.enabled)
+    let entraTenant = $state(data.entra.tenant)
+    let entraClientId = $state(data.entra.clientId)
+    let entraClientSecret = $state('')
+    let entraIsSubmitting = $state(false)
+    let entraShowForm = $state(false)
+
     let passwordEnabled = $state(data.passwordAuthEnabled)
     let passwordIsSubmitting = $state(false)
 
     let oktaDisableFormRef = $state<HTMLFormElement | null>(null)
+    let entraDisableFormRef = $state<HTMLFormElement | null>(null)
     let googleDisableFormRef = $state<HTMLFormElement | null>(null)
     let passwordFormRef = $state<HTMLFormElement | null>(null)
 
@@ -39,6 +48,14 @@
             oktaDisableFormRef?.requestSubmit()
         } else {
             oktaShowForm = true
+        }
+    }
+
+    function handleEntraSwitch() {
+        if (entraEnabled) {
+            entraDisableFormRef?.requestSubmit()
+        } else {
+            entraShowForm = true
         }
     }
 
@@ -228,6 +245,187 @@
                                         disabled={oktaIsSubmitting}
                                         class="cursor-pointer">
                                         {#if oktaIsSubmitting}
+                                            <Loader2 class="mr-2 h-4 w-4 animate-spin" />
+                                            Saving...
+                                        {:else}
+                                            Save
+                                        {/if}
+                                    </Button>
+                                </div>
+                            </form>
+                        </Card.Content>
+                    {/if}
+                </Card.Root>
+            {/if}
+
+            <!-- Microsoft Entra ID -->
+            {#if data.entraSsoAvailable}
+                <Card.Root>
+                    <Card.Header
+                        class={entraShowForm || (!data.entra.enabled && !entraEnabled)
+                            ? 'pb-2'
+                            : ''}>
+                        <div class="flex items-center gap-3">
+                            <img src={microsoftIcon} alt="Microsoft" class="h-8 w-8" />
+                            <div>
+                                <div class="text-base leading-tight font-semibold">
+                                    Microsoft Entra ID
+                                </div>
+                                <p class="text-muted-foreground mt-0.5 text-sm">
+                                    Sign in with Microsoft Entra ID
+                                </p>
+                            </div>
+                        </div>
+                        <Card.Action>
+                            <div class="flex items-center gap-2">
+                                {#if entraEnabled && !entraShowForm}
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        class="h-8 w-8 cursor-pointer"
+                                        title="Edit"
+                                        onclick={() => (entraShowForm = true)}>
+                                        <Pencil class="h-4 w-4" />
+                                    </Button>
+                                {/if}
+                                <form
+                                    method="POST"
+                                    action="?/updateEntra"
+                                    bind:this={entraDisableFormRef}
+                                    class="hidden"
+                                    use:enhance={() => {
+                                        entraIsSubmitting = true
+                                        return async ({ result, update }) => {
+                                            entraIsSubmitting = false
+                                            await update()
+                                            entraEnabled = data.entra.enabled
+                                            if (result.type === 'success') {
+                                                toast.success(
+                                                    result.data?.message || 'Entra SSO disabled',
+                                                )
+                                                entraShowForm = false
+                                            } else if (result.type === 'failure') {
+                                                toast.error(
+                                                    result.data?.error || 'Something went wrong',
+                                                )
+                                            }
+                                        }
+                                    }}>
+                                    <input type="hidden" name="enabled" value="false" />
+                                    <input type="hidden" name="tenant" value="" />
+                                    <input type="hidden" name="clientId" value="" />
+                                    <input type="hidden" name="clientSecret" value="" />
+                                </form>
+                                <Switch
+                                    checked={entraEnabled}
+                                    disabled={entraIsSubmitting}
+                                    onCheckedChange={handleEntraSwitch}
+                                    class="cursor-pointer" />
+                            </div>
+                        </Card.Action>
+                    </Card.Header>
+                    {#if entraEnabled && !entraShowForm}
+                        <Card.Content>
+                            <div class="min-w-0 space-y-1 text-sm">
+                                <div class="flex gap-1">
+                                    <span class="text-muted-foreground shrink-0">Tenant:</span>
+                                    <span class="truncate font-mono">{data.entra.tenant}</span>
+                                </div>
+                                <div class="flex gap-1">
+                                    <span class="text-muted-foreground shrink-0">Client ID:</span>
+                                    <span class="truncate font-mono">{data.entra.clientId}</span>
+                                </div>
+                            </div>
+                        </Card.Content>
+                    {:else if entraShowForm}
+                        <Card.Content>
+                            <form
+                                method="POST"
+                                action="?/updateEntra"
+                                use:enhance={() => {
+                                    entraIsSubmitting = true
+                                    return async ({ result, update }) => {
+                                        entraIsSubmitting = false
+                                        await update()
+                                        entraEnabled = data.entra.enabled
+                                        if (result.type === 'success') {
+                                            toast.success(
+                                                result.data?.message || 'Entra SSO enabled',
+                                            )
+                                            entraClientSecret = ''
+                                            entraShowForm = false
+                                        } else if (result.type === 'failure') {
+                                            toast.error(
+                                                result.data?.error || 'Something went wrong',
+                                            )
+                                        }
+                                    }
+                                }}
+                                class="space-y-4">
+                                <input type="hidden" name="enabled" value="true" />
+
+                                <Alert.Root>
+                                    <Info class="h-4 w-4" />
+                                    <Alert.Description>
+                                        Register an application in Microsoft Entra ID, create a
+                                        client secret, and paste the credentials here. Set the
+                                        redirect URI to
+                                        <code class="bg-muted rounded px-1 text-sm"
+                                            >{'{app_url}'}/auth/entra/callback</code>
+                                    </Alert.Description>
+                                </Alert.Root>
+
+                                <div class="space-y-2">
+                                    <Label for="entraTenant">Tenant ID *</Label>
+                                    <Input
+                                        id="entraTenant"
+                                        name="tenant"
+                                        bind:value={entraTenant}
+                                        placeholder="contoso.onmicrosoft.com"
+                                        required />
+                                </div>
+
+                                <div class="space-y-2">
+                                    <Label for="entraClientId">Client ID *</Label>
+                                    <Input
+                                        id="entraClientId"
+                                        name="clientId"
+                                        bind:value={entraClientId}
+                                        placeholder="00000000-0000-0000-0000-000000000000"
+                                        required />
+                                </div>
+
+                                <div class="space-y-2">
+                                    <Label for="entraClientSecret">
+                                        Client Secret {data.entra.hasClientSecret ? '' : '*'}
+                                    </Label>
+                                    <Input
+                                        id="entraClientSecret"
+                                        name="clientSecret"
+                                        type="password"
+                                        bind:value={entraClientSecret}
+                                        placeholder={data.entra.hasClientSecret
+                                            ? 'Leave empty to keep current secret'
+                                            : 'Enter client secret'}
+                                        required={!data.entra.hasClientSecret} />
+                                </div>
+
+                                <div class="flex justify-end gap-2">
+                                    <Button
+                                        variant="outline"
+                                        type="button"
+                                        class="cursor-pointer"
+                                        onclick={() => {
+                                            entraShowForm = false
+                                            if (!data.entra.enabled) entraEnabled = false
+                                        }}>
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        type="submit"
+                                        disabled={entraIsSubmitting}
+                                        class="cursor-pointer">
+                                        {#if entraIsSubmitting}
                                             <Loader2 class="mr-2 h-4 w-4 animate-spin" />
                                             Saving...
                                         {:else}

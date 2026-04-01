@@ -12,9 +12,11 @@ import { SystemFlags } from '$lib/server/system-flags'
 import {
     getGoogleAuthConfig,
     getOktaAuthConfig,
+    getEntraAuthConfig,
     isPasswordAuthEnabled,
 } from '$lib/server/db/auth-providers'
 import { loadOktaOAuthService } from '$lib/server/oauth/okta'
+import { loadEntraOAuthService } from '$lib/server/oauth/entra'
 import { verify } from '@node-rs/argon2'
 import type { Actions, PageServerLoad } from './$types.js'
 
@@ -38,6 +40,11 @@ export const load: PageServerLoad = async ({ cookies, locals, url }) => {
     const oktaConfig = await getOktaAuthConfig()
     const oktaAuthEnabled =
         (oktaConfig?.enabled && (await loadOktaOAuthService()) !== null) ?? false
+
+    // Check if Entra SSO is available and enabled
+    const entraConfig = await getEntraAuthConfig()
+    const entraAuthEnabled =
+        (entraConfig?.enabled && (await loadEntraOAuthService()) !== null) ?? false
     const passwordAuthEnabled = await isPasswordAuthEnabled()
 
     // Handle OAuth error messages from URL parameters
@@ -79,6 +86,10 @@ export const load: PageServerLoad = async ({ cookies, locals, url }) => {
             case 'okta_not_available':
                 errorMessage = 'Okta SSO is not available. Please contact your administrator.'
                 break
+            case 'entra_not_available':
+                errorMessage =
+                    'Microsoft Entra ID SSO is not available. Please contact your administrator.'
+                break
             case 'authentication_required':
                 errorMessage = 'Authentication required.'
                 break
@@ -91,6 +102,7 @@ export const load: PageServerLoad = async ({ cookies, locals, url }) => {
             error: errorMessage,
             googleAuthEnabled,
             oktaAuthEnabled,
+            entraAuthEnabled,
             passwordAuthEnabled,
         }
     }
@@ -104,6 +116,7 @@ export const load: PageServerLoad = async ({ cookies, locals, url }) => {
             success: 'Welcome to Omni! Your account has been created successfully.',
             googleAuthEnabled,
             oktaAuthEnabled,
+            entraAuthEnabled,
             passwordAuthEnabled,
         }
     }
@@ -113,6 +126,7 @@ export const load: PageServerLoad = async ({ cookies, locals, url }) => {
             success: `Your ${linked} account has been successfully linked.`,
             googleAuthEnabled,
             oktaAuthEnabled,
+            entraAuthEnabled,
             passwordAuthEnabled,
         }
     }

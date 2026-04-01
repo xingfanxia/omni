@@ -3,6 +3,9 @@ import { db } from './index'
 import { authProviders } from './schema'
 import type { AuthProvider } from './schema'
 import { encryptConfig, decryptConfig } from '$lib/server/crypto/encryption'
+import { createLogger } from '$lib/server/logger.js'
+
+const logger = createLogger('auth-providers')
 
 export interface GoogleAuthConfig {
     clientId: string
@@ -49,6 +52,27 @@ export async function getOktaAuthConfig(): Promise<{
         oktaDomain: config.oktaDomain || '',
         clientId: config.clientId || '',
         clientSecret: config.clientSecret || '',
+    }
+}
+
+export async function getEntraAuthConfig(): Promise<{
+    enabled: boolean
+    tenant: string
+    clientId: string
+    clientSecret: string
+} | null> {
+    const row = await getAuthProvider('entra')
+    if (!row) return null
+    const config = row.config as { tenant?: string; clientId?: string; clientSecret?: string }
+    if (!config.tenant || !config.clientId || !config.clientSecret) {
+        logger.warn('Entra auth provider row exists but has incomplete config')
+        return null
+    }
+    return {
+        enabled: row.enabled,
+        tenant: config.tenant,
+        clientId: config.clientId,
+        clientSecret: config.clientSecret,
     }
 }
 
