@@ -131,7 +131,7 @@ export const load: PageServerLoad = async ({ cookies, locals, url }) => {
         }
     }
 
-    return { googleAuthEnabled, oktaAuthEnabled, passwordAuthEnabled }
+    return { googleAuthEnabled, oktaAuthEnabled, entraAuthEnabled, passwordAuthEnabled }
 }
 
 export const actions: Actions = {
