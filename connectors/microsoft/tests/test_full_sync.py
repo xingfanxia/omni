@@ -748,6 +748,87 @@ async def test_teams_file_attachment(
 
 
 # ---------------------------------------------------------------------------
+# Mail attachment tests
+# ---------------------------------------------------------------------------
+
+
+async def test_outlook_attachment_sync(
+    harness, seed, mock_graph_server, mock_graph_api, cm_client: httpx.AsyncClient
+):
+    """Mail attachments are indexed as separate documents."""
+    import base64
+
+    source_id = await _create_ms_source(
+        seed, mock_graph_server, mock_graph_api, "outlook"
+    )
+    mock_graph_api.add_user(_make_user())
+    mock_graph_api.add_mail_message(
+        USER_ID,
+        {
+            "id": "msg-with-att",
+            "internetMessageId": "<att-test@contoso.com>",
+            "subject": "Report Attached",
+            "bodyPreview": "See attached.",
+            "body": {"contentType": "text", "content": "See attached."},
+            "from": {
+                "emailAddress": {"name": "Bob Jones", "address": "bob@contoso.com"}
+            },
+            "toRecipients": [
+                {
+                    "emailAddress": {
+                        "name": "Alice Smith",
+                        "address": "alice@contoso.com",
+                    }
+                }
+            ],
+            "ccRecipients": [],
+            "receivedDateTime": "2026-03-15T09:00:00Z",
+            "sentDateTime": "2026-03-15T08:55:00Z",
+            "webLink": "https://outlook.office365.com/mail/inbox/msg-with-att",
+            "hasAttachments": True,
+        },
+    )
+    mock_graph_api.add_message_attachment(
+        USER_ID,
+        "msg-with-att",
+        {
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            "id": "att-001",
+            "name": "notes.txt",
+            "contentType": "text/plain",
+            "size": 24,
+            "contentBytes": base64.b64encode(b"These are my notes.").decode(),
+            "isInline": False,
+        },
+    )
+
+    resp = await cm_client.post(
+        "/sync",
+        json={"source_id": source_id, "sync_type": "full"},
+    )
+    assert resp.status_code == 200, resp.text
+    sync_run_id = resp.json()["sync_run_id"]
+
+    row = await wait_for_sync(harness.db_pool, sync_run_id, timeout=60)
+    assert (
+        row["status"] == "completed"
+    ), f"Sync ended with status={row['status']}, error={row.get('error_message')}"
+
+    events = await get_events(harness.db_pool, source_id)
+    doc_ids = {
+        e["payload"]["document_id"]
+        for e in events
+        if e["event_type"] == "document_created"
+    }
+    # Should have the email itself
+    assert any(
+        "att-test@contoso.com" in did and ":att:" not in did for did in doc_ids
+    ), f"No mail doc in {doc_ids}"
+    # Should have the attachment as a separate document
+    assert any(":att:" in did for did in doc_ids), f"No attachment doc in {doc_ids}"
+
+
+# ---------------------------------------------------------------------------
 # Max age filtering tests
 # ---------------------------------------------------------------------------
 
