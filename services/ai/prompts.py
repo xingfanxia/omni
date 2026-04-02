@@ -22,7 +22,8 @@ SOURCE_DISPLAY_NAMES = {
 SYSTEM_PROMPT_TEMPLATE = """You are Omni AI, a workplace agent that helps employees find information and complete tasks across their connected apps.
 
 Current date and time: {current_datetime} (UTC)
-{user_line}Connected apps: {connected_apps}
+{user_line}
+Connected apps: {connected_apps}
 {actions_section}
 # Searching
 - Use inline query operators for efficient filtering: in:slack, type:pdf, status:done, by:sarah, before:2024-06, after:2024-01.
@@ -74,7 +75,8 @@ Do not ask questions — use your best judgment.
 When done, provide a brief summary of what you did and the outcomes.
 
 Current date and time: {current_datetime} (UTC)
-{user_line}Connected apps: {connected_apps}
+{user_line}
+Connected apps: {connected_apps}
 {actions_section}
 # Searching
 - Use inline query operators for efficient filtering: in:slack, type:pdf, status:done, by:sarah, before:2024-06, after:2024-01.
@@ -90,16 +92,16 @@ Current date and time: {current_datetime} (UTC)
 - Focus on completing the task efficiently."""
 
 
-AGENT_CHAT_SYSTEM_PROMPT_TEMPLATE = """You are Omni AI, assisting an admin who wants to understand the activity of an automated agent.
+AGENT_CHAT_SYSTEM_PROMPT_TEMPLATE = """You are the "{agent_name}" agent. {user_line}is chatting with you to understand your activity and outcomes.
 
-Agent name: {agent_name}
-Agent instructions: {agent_instructions}
-Agent schedule: {agent_schedule_type} — {agent_schedule_value}
+Your task/purpose: {agent_instructions}
+Your schedule: {agent_schedule_type} — {agent_schedule_value}
 
 {run_history_section}
 
 Current date and time: {current_datetime} (UTC)
-{user_line}Connected apps: {connected_apps}
+{user_line}
+Connected apps: {connected_apps}
 
 # Your role
 - Answer questions about the agent's previous runs, outcomes, and patterns.
@@ -126,20 +128,16 @@ def _format_datetime(dt: datetime | None = None) -> str:
 
 def _format_user_line(
     user_name: str | None,
-    user_email: str | None,
+    user_email: str,
     prefix: str = "User",
 ) -> str:
-    if user_name and user_email:
+    if user_name:
         identity = f"{user_name} ({user_email})"
-    elif user_email:
-        identity = user_email
-    elif user_name:
-        identity = user_name
     else:
-        return ""
+        identity = user_email
     # Escape braces so .format() doesn't choke on user-supplied strings
     identity = identity.replace("{", "{{").replace("}", "}}")
-    return f"{prefix}: {identity}\n"
+    return f"{prefix}: {identity}"
 
 
 def build_agent_system_prompt(
@@ -293,8 +291,10 @@ def _format_execution_log(execution_log: list[dict], max_chars: int = 5000) -> s
                         else:
                             # Count search results etc.
                             search_count = sum(
-                                1 for b in result_content
-                                if isinstance(b, dict) and b.get("type") == "search_result"
+                                1
+                                for b in result_content
+                                if isinstance(b, dict)
+                                and b.get("type") == "search_result"
                             )
                             if search_count:
                                 lines.append(f"{prefix} {search_count} search results")
@@ -329,8 +329,14 @@ def format_run_history(runs: list, max_detailed: int = 3) -> str:
     sections.append(f"## Agent Run History ({len(runs)} most recent runs)\n")
 
     for i, run in enumerate(runs):
-        started = run.started_at.strftime("%Y-%m-%d %H:%M UTC") if run.started_at else "N/A"
-        completed = run.completed_at.strftime("%Y-%m-%d %H:%M UTC") if run.completed_at else "N/A"
+        started = (
+            run.started_at.strftime("%Y-%m-%d %H:%M UTC") if run.started_at else "N/A"
+        )
+        completed = (
+            run.completed_at.strftime("%Y-%m-%d %H:%M UTC")
+            if run.completed_at
+            else "N/A"
+        )
 
         header = f"### Run {i+1} — {started}"
         header += f"\n- Status: {run.status}"
