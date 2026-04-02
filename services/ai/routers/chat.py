@@ -373,266 +373,6 @@ async def _clear_pending_approval(redis_client, chat_id: str) -> None:
     await redis_client.delete(key)
 
 
-async def _stream_agent_chat(
-    request: Request, chat: Chat, chat_id: str, auto_start: bool = False
-) -> StreamingResponse:
-    """Handle streaming for agent chat sessions (admin chatting with an org agent)."""
-
-    # Verify admin access
-    users_repo = UsersRepository()
-    admin_user = await users_repo.find_by_id(chat.user_id)
-    if not admin_user or admin_user.role != "admin":
-        raise HTTPException(
-            status_code=403, detail="Admin access required for agent chats"
-        )
-
-    # Fetch the agent
-    agent_repo = AgentRepository()
-    agent = await agent_repo.get_agent(chat.agent_id)
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-
-    # Resolve LLM provider — prefer agent's model, then default
-    llm_provider = _resolve_llm_provider(request.app.state, chat)
-
-    # Fetch messages
-    messages_repo = MessagesRepository()
-    chat_messages = await messages_repo.get_active_path(chat_id)
-
-    # auto_start: inject a transient user message to prompt the LLM when no messages exist
-    inject_start_message = False
-    if not chat_messages:
-        if auto_start:
-            inject_start_message = True
-        else:
-            raise HTTPException(status_code=404, detail="No messages found for chat")
-    elif chat_messages[-1].message.get("role") != "user":
-        if auto_start:
-            inject_start_message = True
-        else:
-
-            async def empty_generator():
-                yield b"event: end_of_stream\ndata: No new user message to process.\n\n"
-
-            return StreamingResponse(
-                empty_generator(),
-                media_type="text/event-stream",
-                headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
-            )
-
-    # Build read-only tool registry (no connector/write actions)
-    build_result = await _build_agent_chat_registry(request)
-    registry = build_result.registry
-    all_tools = registry.get_all_tools()
-
-    # Fetch agent run history for context
-    run_repo = AgentRunRepository()
-    runs = await run_repo.list_runs(agent.id, limit=20)
-
-    # Build agent chat system prompt with run history
-    active_sources = [
-        s for s in (build_result.sources or []) if s.is_active and not s.is_deleted
-    ]
-    system_prompt = build_agent_chat_system_prompt(
-        agent,
-        runs,
-        active_sources,
-        user_name=admin_user.full_name,
-        user_email=admin_user.email,
-    )
-
-    messages: list[MessageParam] = [
-        MessageParam(**msg.message) for msg in (chat_messages or [])
-    ]
-
-    # Auto-start: inject a transient user message (not persisted)
-    if inject_start_message:
-        messages.append(MessageParam(role="user", content="Go."))
-
-    # Compaction
-    redis_client = getattr(request.app.state, "redis_client", None)
-    secondary_provider = _resolve_secondary_provider(request.app.state)
-    compactor = ConversationCompactor(
-        llm_provider=secondary_provider,
-        redis_client=redis_client,
-    )
-    if compactor.needs_compaction(messages, all_tools):
-        messages = await compactor.compact_conversation(chat_id, messages)
-
-    context = ToolContext(
-        chat_id=chat_id,
-        user_id=admin_user.id,
-        user_email=admin_user.email,
-        skip_permission_check=False,
-    )
-
-    async def stream_generator():
-        try:
-            conversation_messages = messages.copy()
-
-            original_user_query = None
-            for msg in conversation_messages:
-                if msg.get("role") == "user":
-                    content = msg.get("content", "")
-                    if isinstance(content, str):
-                        original_user_query = content
-                        break
-                    elif isinstance(content, list):
-                        text_parts = [
-                            block.get("text", "")
-                            for block in content
-                            if isinstance(block, dict) and block.get("type") == "text"
-                        ]
-                        if text_parts:
-                            original_user_query = " ".join(text_parts)
-                            break
-
-            ctx = ToolContext(
-                chat_id=chat_id,
-                user_id=admin_user.id,
-                user_email=admin_user.email,
-                original_user_query=original_user_query,
-                skip_permission_check=False,
-            )
-
-            for iteration in range(AGENT_MAX_ITERATIONS):
-                if await request.is_disconnected():
-                    break
-
-                content_blocks: list[TextBlockParam | ToolUseBlockParam] = []
-
-                stream: AsyncStream[MessageStreamEvent] = llm_provider.stream_response(
-                    prompt="",
-                    messages=conversation_messages,
-                    tools=all_tools,
-                    max_tokens=DEFAULT_MAX_TOKENS,
-                    temperature=DEFAULT_TEMPERATURE,
-                    top_p=DEFAULT_TOP_P,
-                    system_prompt=system_prompt,
-                )
-
-                message_stop_received = False
-                async for event in stream:
-                    if event.type == "content_block_delta":
-                        if event.delta.type == "text_delta":
-                            if event.index >= len(content_blocks):
-                                content_blocks.append(
-                                    TextBlockParam(type="text", text="")
-                                )
-                            text_block = cast(
-                                TextBlockParam, content_blocks[event.index]
-                            )
-                            text_block["text"] += event.delta.text
-                        elif event.delta.type == "input_json_delta":
-                            if event.index >= len(content_blocks):
-                                content_blocks.append(
-                                    ToolUseBlockParam(
-                                        type="tool_use", id="", name="", input=""
-                                    )
-                                )
-                            tool_use_block = cast(
-                                ToolUseBlockParam, content_blocks[event.index]
-                            )
-                            tool_use_block["input"] = (
-                                cast(str, tool_use_block["input"])
-                                + event.delta.partial_json
-                            )
-                        elif event.delta.type == "citations_delta":
-                            if event.index >= len(content_blocks):
-                                content_blocks.append(
-                                    TextBlockParam(type="text", text="", citations=[])
-                                )
-                            text_block = cast(
-                                TextBlockParam, content_blocks[event.index]
-                            )
-                            if (
-                                "citations" not in text_block
-                                or not text_block["citations"]
-                            ):
-                                text_block["citations"] = []
-                            citations = cast(
-                                list[TextCitationParam], text_block["citations"]
-                            )
-                            citations.append(convert_citation_to_param(event.delta))
-                    elif event.type == "content_block_start":
-                        if event.content_block.type == "text":
-                            content_blocks.append(
-                                TextBlockParam(
-                                    type="text", text=event.content_block.text
-                                )
-                            )
-                        elif event.content_block.type == "tool_use":
-                            content_blocks.append(
-                                ToolUseBlockParam(
-                                    type="tool_use",
-                                    id=event.content_block.id,
-                                    name=event.content_block.name,
-                                    input="",
-                                )
-                            )
-                    elif event.type == "message_stop":
-                        message_stop_received = True
-
-                    yield f"event: message\ndata: {event.to_json(indent=None)}\n\n"
-
-                    if message_stop_received:
-                        break
-
-                # Parse tool call inputs
-                tool_calls = [b for b in content_blocks if b["type"] == "tool_use"]
-                for tool_call in tool_calls:
-                    try:
-                        tool_call["input"] = json.loads(cast(str, tool_call["input"]))
-                    except json.JSONDecodeError:
-                        tool_call["input"] = {}
-
-                assistant_message = MessageParam(
-                    role="assistant", content=content_blocks
-                )
-                conversation_messages.append(assistant_message)
-                yield f"event: save_message\ndata: {json.dumps(assistant_message)}\n\n"
-
-                if not tool_calls:
-                    break
-
-                if await request.is_disconnected():
-                    break
-
-                # Execute tool calls — no approvals needed (read-only registry)
-                tool_results: list[ToolResultBlockParam] = []
-                for tool_call in tool_calls:
-                    result = await registry.execute(
-                        tool_call["name"], tool_call["input"], ctx
-                    )
-                    tool_result = ToolResultBlockParam(
-                        type="tool_result",
-                        tool_use_id=tool_call["id"],
-                        content=result.content,
-                        is_error=result.is_error,
-                    )
-                    tool_results.append(tool_result)
-                    yield f"event: message\ndata: {json.dumps(tool_result)}\n\n"
-
-                tool_result_message = MessageParam(role="user", content=tool_results)
-                conversation_messages.append(tool_result_message)
-                yield f"event: save_message\ndata: {json.dumps(tool_result_message)}\n\n"
-
-            yield f"event: end_of_stream\ndata: Stream ended\n\n"
-
-        except asyncio.CancelledError:
-            logger.info(f"Agent chat stream cancelled for chat {chat_id}")
-            raise
-        except Exception as e:
-            logger.error(f"Agent chat stream error: {e}", exc_info=True)
-            yield f"event: error\ndata: Something went wrong, please try again later.\n\n"
-
-    return StreamingResponse(
-        stream_generator(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
-    )
-
-
 @router.get("/chat/{chat_id}/stream")
 async def stream_chat(
     request: Request,
@@ -651,41 +391,104 @@ async def stream_chat(
     if not chat:
         raise HTTPException(status_code=404, detail="Chat thread not found")
 
-    # Agent chat: verify admin access, use agent-specific prompt and read-only tools
-    if chat.agent_id:
-        return await _stream_agent_chat(request, chat, chat_id, auto_start=auto_start)
-
     llm_provider = _resolve_llm_provider(request.app.state, chat)
-
-    # Resolve user info for permission checks and system prompt
-    user_email: str | None = None
-    user_name: str | None = None
-    if chat.user_id:
-        users_repo = UsersRepository()
-        user = await users_repo.find_by_id(chat.user_id)
-        if user:
-            user_email = user.email
-            user_name = user.full_name
-
+    redis_client = getattr(request.app.state, "redis_client", None)
     messages_repo = MessagesRepository()
     chat_messages = await messages_repo.get_active_path(chat_id)
-    if not chat_messages:
-        raise HTTPException(status_code=404, detail="No messages found for chat")
 
-    # Build registry and discover connector actions
-    build_result = await _build_registry(request, chat)
-    registry = build_result.registry
-    all_tools = registry.get_all_tools()
+    if chat.agent_id:
+        # --- Agent chat setup ---
+        users_repo = UsersRepository()
+        admin_user = await users_repo.find_by_id(chat.user_id)
+        if not admin_user or admin_user.role != "admin":
+            raise HTTPException(
+                status_code=403, detail="Admin access required for agent chats"
+            )
 
-    # Check for pending approval resume flow
-    redis_client = getattr(request.app.state, "redis_client", None)
-    pending = None
-    if redis_client:
-        pending = await _get_pending_approval(redis_client, chat_id)
+        agent_repo = AgentRepository()
+        agent = await agent_repo.get_agent(chat.agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+
+        user_email = admin_user.email
+        user_name = admin_user.full_name
+
+        # Handle auto_start: inject ephemeral message when no messages exist
+        if not chat_messages:
+            if auto_start:
+                chat_messages = []
+            else:
+                raise HTTPException(
+                    status_code=404, detail="No messages found for chat"
+                )
+
+        build_result = await _build_agent_chat_registry(request)
+        registry = build_result.registry
+        all_tools = registry.get_all_tools()
+        pending = None  # no approval flow for agent chats
+
+        # Build agent chat system prompt with run history
+        run_repo = AgentRunRepository()
+        runs = await run_repo.list_runs(agent.id, limit=20)
+        active_sources = [
+            s for s in (build_result.sources or []) if s.is_active and not s.is_deleted
+        ]
+        system_prompt = build_agent_chat_system_prompt(
+            agent,
+            runs,
+            active_sources,
+            user_name=user_name,
+            user_email=user_email,
+        )
+
+        # Build messages, injecting ephemeral start message if needed
+        messages: list[MessageParam] = [
+            MessageParam(**msg.message) for msg in chat_messages
+        ]
+        needs_start = not messages or messages[-1].get("role") != "user"
+        if auto_start and needs_start:
+            messages.append(MessageParam(role="user", content="Go."))
+
+    else:
+        # --- Regular chat setup ---
+        user_email: str | None = None
+        user_name: str | None = None
+        if chat.user_id:
+            users_repo = UsersRepository()
+            user = await users_repo.find_by_id(chat.user_id)
+            if user:
+                user_email = user.email
+                user_name = user.full_name
+
+        if not chat_messages:
+            raise HTTPException(status_code=404, detail="No messages found for chat")
+
+        build_result = await _build_registry(request, chat)
+        registry = build_result.registry
+        all_tools = registry.get_all_tools()
+
+        # Check for pending approval resume flow
+        pending = None
+        if redis_client:
+            pending = await _get_pending_approval(redis_client, chat_id)
+
+        active_sources = [
+            s for s in (build_result.sources or []) if s.is_active and not s.is_deleted
+        ]
+        system_prompt = build_chat_system_prompt(
+            active_sources,
+            build_result.connector_actions,
+            user_name=user_name,
+            user_email=user_email,
+        )
+
+        messages: list[MessageParam] = [
+            MessageParam(**msg.message) for msg in chat_messages
+        ]
 
     # Check if we need to process - only if last message is from user (or resuming from approval)
-    last_message = chat_messages[-1]
-    if not pending and last_message.message.get("role") != "user":
+    last_message_role = messages[-1].get("role") if messages else None
+    if not pending and last_message_role != "user":
         logger.info(
             f"Last message is not from user, no processing needed. Chat ID: {chat_id}"
         )
@@ -699,12 +502,7 @@ async def stream_chat(
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
         )
 
-    # Build messages for conversation from stored messages
-    messages: list[MessageParam] = [
-        MessageParam(**msg.message) for msg in chat_messages
-    ]
-
-    # Check if conversation needs compaction — use secondary model for summarization
+    # Check if conversation needs compaction
     secondary_provider = _resolve_secondary_provider(request.app.state)
     compactor = ConversationCompactor(
         llm_provider=secondary_provider,
@@ -713,17 +511,6 @@ async def stream_chat(
     if compactor.needs_compaction(messages, all_tools):
         logger.info(f"Compacting conversation for chat {chat_id}")
         messages = await compactor.compact_conversation(chat_id, messages)
-
-    # Build system prompt from active sources
-    active_sources = [
-        s for s in (build_result.sources or []) if s.is_active and not s.is_deleted
-    ]
-    system_prompt = build_chat_system_prompt(
-        active_sources,
-        build_result.connector_actions,
-        user_name=user_name,
-        user_email=user_email,
-    )
 
     # Stream AI response with tool calling
     async def stream_generator():
