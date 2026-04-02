@@ -8,8 +8,8 @@
     import * as Switch from '$lib/components/ui/switch/index.js'
     import * as Dialog from '$lib/components/ui/dialog/index.js'
     import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js'
-    import { Plus, Play, Bot, Trash2 } from '@lucide/svelte'
-    import { invalidateAll } from '$app/navigation'
+    import { Plus, Play, Bot, Trash2, MessageSquare } from '@lucide/svelte'
+    import { invalidateAll, goto } from '$app/navigation'
     import { formatSchedule } from '$lib/utils/schedule.js'
     import type { PageData } from './$types.js'
 
@@ -162,6 +162,14 @@
 
     async function triggerAgent(agentId: string) {
         await fetch(`/api/agents/${agentId}/trigger`, { method: 'POST' })
+    }
+
+    async function startChat(agentId: string) {
+        const res = await fetch(`/api/agents/${agentId}/chat`, { method: 'POST' })
+        if (res.ok) {
+            const { chatId } = await res.json()
+            goto(`/chat/${chatId}`)
+        }
     }
 </script>
 
@@ -353,13 +361,24 @@
                             Schedule: {formatSchedule(agent.scheduleType, agent.scheduleValue)}
                         </p>
                     </button>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        class="ml-4 cursor-pointer"
-                        onclick={() => triggerAgent(agent.id)}>
-                        <Play class="h-4 w-4" />
-                    </Button>
+                    <div class="ml-4 flex items-center gap-1">
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            class="cursor-pointer"
+                            title="Chat with agent"
+                            onclick={() => startChat(agent.id)}>
+                            <MessageSquare class="h-4 w-4" />
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            class="cursor-pointer"
+                            title="Run now"
+                            onclick={() => triggerAgent(agent.id)}>
+                            <Play class="h-4 w-4" />
+                        </Button>
+                    </div>
                 </div>
             {/each}
         </div>
