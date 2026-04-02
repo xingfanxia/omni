@@ -34,6 +34,8 @@ class CalendarSyncer(BaseSyncer):
         user: dict[str, Any],
         ctx: SyncContext,
         delta_token: str | None,
+        user_cache: dict[str, str] | None = None,
+        group_cache: dict[str, str] | None = None,
     ) -> str | None:
         user_id = user["id"]
         display_name = user.get("displayName", user_id)
