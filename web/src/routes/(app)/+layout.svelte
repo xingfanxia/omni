@@ -317,7 +317,8 @@
                                                 onclick={clearSearch}>
                                                 <div class="flex items-center gap-1.5 truncate">
                                                     {#if chat.agentId}
-                                                        <Bot class="text-muted-foreground h-3.5 w-3.5 shrink-0" />
+                                                        <Bot
+                                                            class="text-muted-foreground h-3.5 w-3.5 shrink-0" />
                                                     {:else if chat.isStarred}
                                                         <Star
                                                             class="h-3 w-3 shrink-0 fill-current" />
@@ -428,7 +429,7 @@
     <div class="flex max-h-[100vh] w-full min-w-0 flex-1 flex-col">
         <header class={cn('bg-background sticky top-0 z-50 transition-shadow')}>
             <div class="prose flex h-16 items-center px-6">
-                <div class="px-4 text-base font-medium">
+                <div class="min-w-0 flex-1 px-4 text-base font-medium">
                     {#if page.url.pathname === '/search'}
                         Search
                     {:else if page.url.pathname.startsWith('/chat') && currentChatTitle}
