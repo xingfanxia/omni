@@ -1084,11 +1084,11 @@
             </div>
         </div>
     {:else}
-        <div class="relative max-w-[80%]">
+        <div class="flex max-w-[80%] flex-col items-end">
             <div class="text-foreground w-fit rounded-2xl bg-gray-200 px-6 py-4">
                 {@html marked.parse((message.content[0] as TextMessageContent).text)}
             </div>
-            <div class="absolute right-0 mx-0.5 mt-1 flex items-center justify-end gap-1">
+            <div class="mx-0.5 mt-1 flex items-center justify-end gap-1">
                 {@render messageTimestamp(message)}
                 {#if message.siblingIds && message.siblingIds.length > 1}
                     {@render branchNavigation(message)}
