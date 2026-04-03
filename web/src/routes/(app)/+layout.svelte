@@ -70,13 +70,16 @@
     let isEditingHeaderTitle = $state(false)
     let headerTitleValue = $state('')
     let headerTitleInputRef: HTMLInputElement | undefined = $state()
+    let optimisticTitle = $state<string | null>(null)
 
     let currentChatTitle = $derived(
-        page.url.pathname.startsWith('/chat') ? (page.data as any).chat?.title : null,
+        optimisticTitle ??
+            (page.url.pathname.startsWith('/chat') ? (page.data as any).chat?.title : null),
     )
 
     afterNavigate(() => {
         isEditingHeaderTitle = false
+        optimisticTitle = null
     })
 
     async function saveHeaderTitle() {
@@ -85,13 +88,15 @@
             isEditingHeaderTitle = false
             return
         }
+        optimisticTitle = trimmed
+        isEditingHeaderTitle = false
         await fetch(`/api/chat/${page.params.chatId}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ title: trimmed }),
         })
-        isEditingHeaderTitle = false
         invalidateAll()
+        optimisticTitle = null
     }
 
     async function logout() {
