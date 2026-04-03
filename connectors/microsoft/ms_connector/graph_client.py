@@ -305,7 +305,7 @@ class GraphClient:
         base = f"/users/{user_id}/messages/{message_id}/attachments"
         async for att in self.get_paginated(
             base,
-            params={"$select": "id,name,contentType,size,isInline,@odata.type"},
+            params={"$select": "id,name,contentType,size,isInline"},
         ):
             if att.get("@odata.type") != "#microsoft.graph.fileAttachment":
                 continue
