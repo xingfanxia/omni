@@ -88,6 +88,7 @@
     // Tracks user's branch choices: parentId -> chosen childId
     let branchSelections = $state<Record<string, string>>({})
     let userHasScrolled = $state(false)
+    let showTopShadow = $state(false)
     let bottomPadding = $state(80)
 
     let processedMessages = $derived(processMessages(chatMessages))
@@ -365,7 +366,7 @@
                 const lastBlock = messageToUpdate.content[messageToUpdate.content.length - 1]
                 if (lastBlock && lastBlock.type === 'text' && block.type === 'text') {
                     // Combine text blocks
-                    lastBlock.text += block.text
+                    lastBlock.text += '\n\n' + block.text
                     if (block.citations) {
                         if (!lastBlock.citations) {
                             lastBlock.citations = []
@@ -585,9 +586,9 @@
     function recalcBottomPadding() {
         if (!lastUserMessageRef || !chatContainerRef) return
         const containerHeight = chatContainerRef.clientHeight
-        const userMsgTop = lastUserMessageRef.offsetTop - chatContainerRef.offsetTop
+        const userMsgTop = lastUserMessageRef.offsetTop - chatContainerRef.offsetTop - 24
         const contentHeight = chatContainerRef.scrollHeight - bottomPadding
-        // Pad so that max scroll aligns the last user message near the top of the viewport
+        // Pad so that max scroll aligns the last user message near the top of the viewport (with some breathing room)
         bottomPadding = Math.max(0, userMsgTop + containerHeight - contentHeight)
     }
 
@@ -595,10 +596,7 @@
         requestAnimationFrame(() => {
             recalcBottomPadding()
             requestAnimationFrame(() => {
-                if (lastUserMessageRef && chatContainerRef) {
-                    const messageTop = lastUserMessageRef.offsetTop - chatContainerRef.offsetTop
-                    chatContainerRef.scrollTo({ top: messageTop, behavior: 'smooth' })
-                }
+                scrollToBottom()
             })
         })
     }
@@ -615,6 +613,7 @@
             const { scrollTop, scrollHeight, clientHeight } = chatContainerRef
             const isNearBottom = scrollTop + clientHeight >= scrollHeight - 100
             userHasScrolled = !isNearBottom
+            showTopShadow = scrollTop > 0
         }
         chatContainerRef?.addEventListener('scroll', handleScroll)
 
@@ -1085,11 +1084,11 @@
             </div>
         </div>
     {:else}
-        <div class="relative max-w-[80%]">
+        <div class="flex max-w-[80%] flex-col items-end">
             <div class="text-foreground w-fit rounded-2xl bg-gray-200 px-6 py-4">
                 {@html marked.parse((message.content[0] as TextMessageContent).text)}
             </div>
-            <div class="absolute right-0 mx-0.5 mt-1 flex items-center justify-end gap-1">
+            <div class="mx-0.5 mt-1 flex items-center justify-end gap-1">
                 {@render messageTimestamp(message)}
                 {#if message.siblingIds && message.siblingIds.length > 1}
                     {@render branchNavigation(message)}
@@ -1259,149 +1258,162 @@
 
 <div class="flex h-full flex-col">
     <!-- Chat Container -->
-    <div bind:this={chatContainerRef} class="flex w-full flex-1 flex-col overflow-y-auto px-4 pt-6">
+    <div class="relative flex-1 overflow-hidden">
         <div
-            bind:this={chatContentRef}
-            class="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-1"
-            style:padding-bottom="{bottomPadding}px">
-            {#if data.agent}
-                <div class="bg-muted/50 mb-4 flex items-center justify-between rounded-lg border px-4 py-2">
-                    <div class="flex items-center gap-2 text-sm">
-                        <span class="text-muted-foreground">Chatting with agent:</span>
-                        <a href="/agents/{data.agent.id}" class="font-medium hover:underline cursor-pointer">
-                            {data.agent.name}
-                        </a>
-                    </div>
-                    <span class="text-muted-foreground text-xs">Read-only session</span>
-                </div>
-            {/if}
-            {#if data.modelDisplayName}
-                <div class="flex justify-center">
-                    <span class="text-muted-foreground rounded-full border px-3 py-0.5 text-xs">
-                        {data.modelDisplayName}
-                    </span>
-                </div>
-            {/if}
-            <!-- Existing Messages -->
-            {#each processedMessages as message, i (message.id)}
-                {#if message.role === 'user'}
-                    <!-- User Message -->
-                    {#if i === lastUserMessageIndex}
-                        <div
-                            class="group mt-8 flex flex-col items-end"
-                            bind:this={lastUserMessageRef}>
-                            {@render userMessageContent(message)}
+            class={cn(
+                'from-background pointer-events-none absolute inset-x-0 top-0 z-10 h-6 bg-gradient-to-b to-transparent transition-opacity duration-300',
+                showTopShadow ? 'opacity-100' : 'opacity-0',
+            )}>
+        </div>
+        <div
+            bind:this={chatContainerRef}
+            class="flex h-full w-full flex-col overflow-y-auto px-4 pt-6">
+            <div
+                bind:this={chatContentRef}
+                class="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-1"
+                style:padding-bottom="{bottomPadding}px">
+                {#if data.agent}
+                    <div
+                        class="bg-muted/50 mb-4 flex items-center justify-between rounded-lg border px-4 py-2">
+                        <div class="flex items-center gap-2 text-sm">
+                            <span class="text-muted-foreground">Chatting with agent:</span>
+                            <a
+                                href="/agents/{data.agent.id}"
+                                class="cursor-pointer font-medium hover:underline">
+                                {data.agent.name}
+                            </a>
                         </div>
-                    {:else}
-                        <div class="group mt-8 flex flex-col items-end">
-                            {@render userMessageContent(message)}
+                        <span class="text-muted-foreground text-xs">Read-only session</span>
+                    </div>
+                {/if}
+                {#if data.modelDisplayName}
+                    <div class="flex justify-center">
+                        <span class="text-muted-foreground rounded-full border px-3 py-0.5 text-xs">
+                            {data.modelDisplayName}
+                        </span>
+                    </div>
+                {/if}
+                <!-- Existing Messages -->
+                {#each processedMessages as message, i (message.id)}
+                    {#if message.role === 'user'}
+                        <!-- User Message -->
+                        {#if i === lastUserMessageIndex}
+                            <div
+                                class="group mt-8 flex flex-col items-end"
+                                bind:this={lastUserMessageRef}>
+                                {@render userMessageContent(message)}
+                            </div>
+                        {:else}
+                            <div class="group mt-8 flex flex-col items-end">
+                                {@render userMessageContent(message)}
+                            </div>
+                        {/if}
+                    {:else if message.role === 'assistant'}
+                        <!-- Assistant Message -->
+                        <div class="group mt-8 flex flex-col gap-1">
+                            <div class="prose prose-p:my-3 max-w-none">
+                                <ToolCallsGroup
+                                    content={message.content}
+                                    isStreaming={isStreaming && i === processedMessages.length - 1}
+                                    {stripThinkingContent} />
+                            </div>
+                            {#if !isStreaming}
+                                {@render sourcesSection(collectSources(message))}
+                            {/if}
+                            <div
+                                class={cn(
+                                    'flex items-center gap-1',
+                                    i !== processedMessages.length - 1 &&
+                                        'opacity-0 transition-opacity group-hover:opacity-100',
+                                )}>
+                                {#if message.siblingIds && message.siblingIds.length > 1}
+                                    {@render branchNavigation(message)}
+                                {/if}
+                                {#if !(isStreaming && i === processedMessages.length - 1)}
+                                    {@render messageControls(message)}
+                                {/if}
+                            </div>
                         </div>
                     {/if}
-                {:else if message.role === 'assistant'}
-                    <!-- Assistant Message -->
-                    <div class="group mt-8 flex flex-col gap-1">
-                        <div class="prose prose-p:my-3 max-w-none">
-                            <ToolCallsGroup
-                                content={message.content}
-                                isStreaming={isStreaming && i === processedMessages.length - 1}
-                                {stripThinkingContent} />
-                        </div>
-                        {#if !isStreaming}
-                            {@render sourcesSection(collectSources(message))}
-                        {/if}
-                        <div
-                            class={cn(
-                                'flex items-center gap-1',
-                                i !== processedMessages.length - 1 &&
-                                    'opacity-0 transition-opacity group-hover:opacity-100',
-                            )}>
-                            {#if message.siblingIds && message.siblingIds.length > 1}
-                                {@render branchNavigation(message)}
-                            {/if}
-                            {#if !(isStreaming && i === processedMessages.length - 1)}
-                                {@render messageControls(message)}
-                            {/if}
+                {/each}
+
+                <!-- Approval Required UI -->
+                {#if pendingApproval}
+                    <div class="mx-auto w-full max-w-lg">
+                        <div class="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                            <div class="mb-2 flex items-center gap-2">
+                                <CircleAlertIcon class="h-5 w-5 text-amber-600" />
+                                <h3 class="text-sm font-semibold text-amber-800">
+                                    Action requires approval
+                                </h3>
+                            </div>
+                            <div class="mb-3 space-y-1">
+                                <p class="text-sm text-amber-700">
+                                    <span class="font-medium"
+                                        >{pendingApproval.tool_name.replace('__', ' > ')}</span>
+                                </p>
+                                <pre
+                                    class="max-h-32 overflow-auto rounded bg-amber-100 p-2 text-xs text-amber-900">{JSON.stringify(
+                                        pendingApproval.tool_input,
+                                        null,
+                                        2,
+                                    )}</pre>
+                            </div>
+                            <div class="flex gap-2">
+                                <Button
+                                    size="sm"
+                                    variant="default"
+                                    class="cursor-pointer bg-green-600 text-white hover:bg-green-700"
+                                    onclick={() => handleApproval('approved')}>
+                                    Approve
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    class="cursor-pointer"
+                                    onclick={() => handleApproval('denied')}>
+                                    Deny
+                                </Button>
+                            </div>
                         </div>
                     </div>
                 {/if}
-            {/each}
 
-            <!-- Approval Required UI -->
-            {#if pendingApproval}
-                <div class="mx-auto w-full max-w-lg">
-                    <div class="rounded-lg border border-amber-200 bg-amber-50 p-4">
-                        <div class="mb-2 flex items-center gap-2">
-                            <CircleAlertIcon class="h-5 w-5 text-amber-600" />
-                            <h3 class="text-sm font-semibold text-amber-800">
-                                Action requires approval
-                            </h3>
-                        </div>
-                        <div class="mb-3 space-y-1">
-                            <p class="text-sm text-amber-700">
-                                <span class="font-medium"
-                                    >{pendingApproval.tool_name.replace('__', ' > ')}</span>
-                            </p>
-                            <pre
-                                class="max-h-32 overflow-auto rounded bg-amber-100 p-2 text-xs text-amber-900">{JSON.stringify(
-                                    pendingApproval.tool_input,
-                                    null,
-                                    2,
-                                )}</pre>
-                        </div>
-                        <div class="flex gap-2">
-                            <Button
-                                size="sm"
-                                variant="default"
-                                class="cursor-pointer bg-green-600 text-white hover:bg-green-700"
-                                onclick={() => handleApproval('approved')}>
-                                Approve
-                            </Button>
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                class="cursor-pointer"
-                                onclick={() => handleApproval('denied')}>
-                                Deny
-                            </Button>
-                        </div>
+                <!-- Streaming AI Response -->
+                {#if isStreaming || error}
+                    <div class="flex px-2">
+                        {#if error}
+                            <Alert.Root variant="destructive">
+                                <CircleAlert />
+                                <Alert.Title>{error}</Alert.Title>
+                                <!-- <Alert.Description>{error}</Alert.Description> -->
+                            </Alert.Root>
+                        {:else if isStreaming}
+                            <span class="mt-2 flex items-center gap-1">
+                                <span class="thinking-dot"></span>
+                            </span>
+                        {/if}
                     </div>
-                </div>
-            {/if}
+                {/if}
+            </div>
 
-            <!-- Streaming AI Response -->
-            {#if isStreaming || error}
-                <div class="flex px-2">
-                    {#if error}
-                        <Alert.Root variant="destructive">
-                            <CircleAlert />
-                            <Alert.Title>{error}</Alert.Title>
-                            <!-- <Alert.Description>{error}</Alert.Description> -->
-                        </Alert.Root>
-                    {:else if isStreaming}
-                        <span class="mt-2 flex items-center gap-1">
-                            <span class="thinking-dot"></span>
-                        </span>
-                    {/if}
-                </div>
-            {/if}
-        </div>
-
-        <!-- Input -->
-        <div class="bg-background sticky bottom-0 flex justify-center pb-4">
-            <UserInput
-                bind:this={userInputRef}
-                bind:value={userMessage}
-                inputMode="chat"
-                onSubmit={handleSubmit}
-                onInput={(v) => (userMessage = v)}
-                modeSelectorEnabled={false}
-                placeholders={{
-                    chat: 'Ask a follow-up...',
-                    search: 'Search for something else...',
-                }}
-                {isStreaming}
-                onStop={handleStop}
-                maxWidth="max-w-4xl" />
+            <!-- Input -->
+            <div class="bg-background sticky bottom-0 flex justify-center pb-4">
+                <UserInput
+                    bind:this={userInputRef}
+                    bind:value={userMessage}
+                    inputMode="chat"
+                    onSubmit={handleSubmit}
+                    onInput={(v) => (userMessage = v)}
+                    modeSelectorEnabled={false}
+                    placeholders={{
+                        chat: 'Ask a follow-up...',
+                        search: 'Search for something else...',
+                    }}
+                    {isStreaming}
+                    onStop={handleStop}
+                    maxWidth="max-w-4xl" />
+            </div>
         </div>
     </div>
 </div>
