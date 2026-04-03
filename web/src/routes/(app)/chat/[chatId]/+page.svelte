@@ -1262,11 +1262,12 @@
 <div class="flex h-full flex-col">
     <!-- Chat Container -->
     <div class="relative flex-1 overflow-hidden">
-        {#if showTopShadow}
-            <div
-                class="pointer-events-none absolute inset-x-0 top-0 z-10 h-8 bg-gradient-to-b from-black/[0.07] to-transparent">
-            </div>
-        {/if}
+        <div
+            class={cn(
+                'pointer-events-none absolute inset-x-0 top-0 z-10 h-6 bg-gradient-to-b from-black/[0.04] to-transparent transition-opacity duration-300',
+                showTopShadow ? 'opacity-100' : 'opacity-0',
+            )}>
+        </div>
         <div
             bind:this={chatContainerRef}
             class="flex h-full w-full flex-col overflow-y-auto px-4 pt-6">
@@ -1275,10 +1276,13 @@
                 class="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-1"
                 style:padding-bottom="{bottomPadding}px">
                 {#if data.agent}
-                    <div class="bg-muted/50 mb-4 flex items-center justify-between rounded-lg border px-4 py-2">
+                    <div
+                        class="bg-muted/50 mb-4 flex items-center justify-between rounded-lg border px-4 py-2">
                         <div class="flex items-center gap-2 text-sm">
                             <span class="text-muted-foreground">Chatting with agent:</span>
-                            <a href="/agents/{data.agent.id}" class="font-medium hover:underline cursor-pointer">
+                            <a
+                                href="/agents/{data.agent.id}"
+                                class="cursor-pointer font-medium hover:underline">
                                 {data.agent.name}
                             </a>
                         </div>
