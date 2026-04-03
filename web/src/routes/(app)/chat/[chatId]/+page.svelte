@@ -1261,7 +1261,7 @@
     <div class="relative flex-1 overflow-hidden">
         <div
             class={cn(
-                'pointer-events-none absolute inset-x-0 top-0 z-10 h-6 bg-gradient-to-b from-black/[0.04] to-transparent transition-opacity duration-300',
+                'from-background pointer-events-none absolute inset-x-0 top-0 z-10 h-6 bg-gradient-to-b to-transparent transition-opacity duration-300',
                 showTopShadow ? 'opacity-100' : 'opacity-0',
             )}>
         </div>
