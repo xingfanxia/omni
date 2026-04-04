@@ -2072,9 +2072,11 @@ impl SyncManager {
             debug!("Processing batch of {} threads", unprocessed_threads.len());
 
             // Fetch batch with retry on 429 (up to 3 attempts with exponential backoff)
+            // When any 429s occur, pause before the NEXT batch too (adaptive backpressure)
             let mut threads_to_fetch = unprocessed_threads.clone();
             let mut all_successes: Vec<(String, crate::gmail::GmailThreadResponse)> = Vec::new();
             let max_retries = 3;
+            let mut saw_rate_limit = false;
 
             for attempt in 0..=max_retries {
                 if threads_to_fetch.is_empty() {
@@ -2125,6 +2127,9 @@ impl SyncManager {
                     }
                 }
 
+                if !rate_limited_ids.is_empty() {
+                    saw_rate_limit = true;
+                }
                 threads_to_fetch = rate_limited_ids;
             }
 
@@ -2133,6 +2138,12 @@ impl SyncManager {
                     "Gave up on {} threads after {} retries for user {}",
                     threads_to_fetch.len(), max_retries, user_email
                 );
+            }
+
+            // Adaptive backpressure: if this batch had 429s, pause before next batch
+            if saw_rate_limit {
+                debug!("Rate limit hit — pausing 3s before next batch");
+                tokio::time::sleep(Duration::from_secs(3)).await;
             }
 
             for (thread_id, thread_response) in all_successes.iter() {
