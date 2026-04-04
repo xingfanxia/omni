@@ -29,7 +29,7 @@ export async function validateApiKey(
 ): Promise<{
     user: typeof table.user.$inferSelect
     allowedSources: string[] | null
-    scope: 'public' | 'user'
+    scope: 'public' | 'user' | 'admin'
 } | null> {
     const hash = hashApiKey(key)
 
@@ -76,7 +76,11 @@ export async function validateApiKey(
         })
 
     const allowedSources = result.apiKey.allowedSources as string[] | null
-    const scope = (result.apiKey.scope === 'user' ? 'user' : 'public') as 'public' | 'user'
+    const rawScope = result.apiKey.scope
+    const scope = (rawScope === 'admin' ? 'admin' : rawScope === 'user' ? 'user' : 'public') as
+        | 'public'
+        | 'user'
+        | 'admin'
     return { user: result.user, allowedSources, scope }
 }
 
@@ -85,7 +89,7 @@ export async function createApiKey(
     name: string,
     expiresAt?: Date,
     allowedSources?: string[] | null,
-    scope?: 'public' | 'user',
+    scope?: 'public' | 'user' | 'admin',
 ): Promise<{ id: string; key: string; prefix: string }> {
     // Check per-user key count limit
     const existing = await db

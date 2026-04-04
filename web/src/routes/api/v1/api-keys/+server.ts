@@ -59,8 +59,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         allowedSources = allowed_sources as string[]
     }
 
-    // Validate scope
-    const scope = scopeInput === 'user' ? 'user' : 'public' as 'public' | 'user'
+    // Validate scope — 'admin' requires admin role
+    let scope: 'public' | 'user' | 'admin' = 'public'
+    if (scopeInput === 'admin') {
+        if (locals.user.role !== 'admin') {
+            return json({ error: 'Admin scope requires admin role' }, { status: 403 })
+        }
+        scope = 'admin'
+    } else if (scopeInput === 'user') {
+        scope = 'user'
+    }
 
     try {
         const result = await createApiKey(locals.user.id, name.trim(), expiresAt, allowedSources, scope)
