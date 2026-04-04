@@ -21,9 +21,28 @@ export const POST: RequestHandler = async ({ request, fetch, locals }) => {
         return json({ error: 'query is required' }, { status: 400 })
     }
 
+    // Enforce API key source scoping
+    const allowedSources = locals.apiKeyAllowedSources
+    let sourceTypes: string[] | undefined = Array.isArray(body.source_types)
+        ? body.source_types
+        : undefined
+
+    if (allowedSources) {
+        if (sourceTypes) {
+            // Intersect: only allow sources that are both requested AND permitted
+            sourceTypes = sourceTypes.filter((s: string) => allowedSources.includes(s))
+            if (sourceTypes.length === 0) {
+                return json({ results: [], total_count: 0, query_time_ms: 0, has_more: false, query })
+            }
+        } else {
+            // No explicit filter — restrict to allowed sources
+            sourceTypes = allowedSources
+        }
+    }
+
     const queryData = {
         query,
-        source_types: Array.isArray(body.source_types) ? body.source_types : undefined,
+        source_types: sourceTypes,
         content_types: Array.isArray(body.content_types) ? body.content_types : undefined,
         limit: typeof body.limit === 'number' ? Math.min(body.limit, 100) : 20,
         offset: typeof body.offset === 'number' ? body.offset : 0,

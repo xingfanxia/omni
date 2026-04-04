@@ -9,7 +9,13 @@ export const GET: RequestHandler = async ({ locals }) => {
         return json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const allSources = await db.query.sources.findMany()
+    let allSources = await db.query.sources.findMany()
+
+    // Filter by API key source scoping
+    const allowedSources = locals.apiKeyAllowedSources
+    if (allowedSources) {
+        allSources = allSources.filter((s) => allowedSources.includes(s.sourceType))
+    }
 
     const sourceIds = allSources.map((s) => s.id)
 

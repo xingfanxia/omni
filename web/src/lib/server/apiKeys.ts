@@ -26,7 +26,7 @@ export function hashApiKey(key: string): string {
 
 export async function validateApiKey(
     key: string,
-): Promise<{ user: typeof table.user.$inferSelect } | null> {
+): Promise<{ user: typeof table.user.$inferSelect; allowedSources: string[] | null } | null> {
     const hash = hashApiKey(key)
 
     const [result] = await db
@@ -71,13 +71,15 @@ export async function validateApiKey(
             logger.warn('Failed to update api key last_used_at', { error: err.message })
         })
 
-    return { user: result.user }
+    const allowedSources = result.apiKey.allowedSources as string[] | null
+    return { user: result.user, allowedSources }
 }
 
 export async function createApiKey(
     userId: string,
     name: string,
     expiresAt?: Date,
+    allowedSources?: string[] | null,
 ): Promise<{ id: string; key: string; prefix: string }> {
     // Check per-user key count limit
     const existing = await db
@@ -99,6 +101,7 @@ export async function createApiKey(
         keyPrefix: prefix,
         name,
         expiresAt: expiresAt ?? null,
+        allowedSources: allowedSources ?? null,
     })
 
     return { id, key, prefix }
@@ -110,6 +113,7 @@ export async function listApiKeys(userId: string) {
             id: table.apiKeys.id,
             name: table.apiKeys.name,
             keyPrefix: table.apiKeys.keyPrefix,
+            allowedSources: table.apiKeys.allowedSources,
             lastUsedAt: table.apiKeys.lastUsedAt,
             expiresAt: table.apiKeys.expiresAt,
             isActive: table.apiKeys.isActive,

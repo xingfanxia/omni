@@ -84,11 +84,18 @@ export const GET: RequestHandler = async ({ params, url, fetch, locals }) => {
                 .join('\n\n')
         }
 
+        // Enforce API key source scoping
+        const docSourceType = doc.attributes?.source_type ?? result.source_type
+        const allowedSources = locals.apiKeyAllowedSources
+        if (allowedSources && docSourceType && !allowedSources.includes(docSourceType)) {
+            return json({ error: 'Access denied for this source type' }, { status: 403 })
+        }
+
         return json({
             id: doc.id,
             title: doc.title,
             url: doc.url,
-            source_type: doc.attributes?.source_type ?? result.source_type,
+            source_type: docSourceType,
             content_type: doc.content_type,
             content,
             match_type: result.match_type,
