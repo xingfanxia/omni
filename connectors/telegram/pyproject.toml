@@ -1,11 +1,13 @@
 [project]
 name = "telegram-connector"
-version = "1.0.0"
-description = "Telegram connector for Omni"
+version = "1.1.0"
+description = "Telegram connector for Omni (Bot API + Telethon MTProto)"
 requires-python = ">=3.11"
 dependencies = [
     "omni-connector",
     "httpx>=0.27.0",
+    "telethon>=1.37.0",
+    "cryptg>=0.4",
 ]
 
 [tool.uv.sources]
