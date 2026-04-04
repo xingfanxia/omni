@@ -5,6 +5,7 @@ declare global {
             user: import('$lib/server/auth').SessionValidationResult['user']
             session: import('$lib/server/auth').SessionValidationResult['session']
             apiKeyAllowedSources: string[] | null
+            apiKeyScope: 'public' | 'user' | null
             requestId: string
             logger: import('$lib/server/logger').Logger
         }

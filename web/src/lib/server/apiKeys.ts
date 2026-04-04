@@ -26,7 +26,11 @@ export function hashApiKey(key: string): string {
 
 export async function validateApiKey(
     key: string,
-): Promise<{ user: typeof table.user.$inferSelect; allowedSources: string[] | null } | null> {
+): Promise<{
+    user: typeof table.user.$inferSelect
+    allowedSources: string[] | null
+    scope: 'public' | 'user'
+} | null> {
     const hash = hashApiKey(key)
 
     const [result] = await db
@@ -72,7 +76,8 @@ export async function validateApiKey(
         })
 
     const allowedSources = result.apiKey.allowedSources as string[] | null
-    return { user: result.user, allowedSources }
+    const scope = (result.apiKey.scope === 'user' ? 'user' : 'public') as 'public' | 'user'
+    return { user: result.user, allowedSources, scope }
 }
 
 export async function createApiKey(
@@ -80,6 +85,7 @@ export async function createApiKey(
     name: string,
     expiresAt?: Date,
     allowedSources?: string[] | null,
+    scope?: 'public' | 'user',
 ): Promise<{ id: string; key: string; prefix: string }> {
     // Check per-user key count limit
     const existing = await db
@@ -102,6 +108,7 @@ export async function createApiKey(
         name,
         expiresAt: expiresAt ?? null,
         allowedSources: allowedSources ?? null,
+        scope: scope ?? 'public',
     })
 
     return { id, key, prefix }
@@ -114,6 +121,7 @@ export async function listApiKeys(userId: string) {
             name: table.apiKeys.name,
             keyPrefix: table.apiKeys.keyPrefix,
             allowedSources: table.apiKeys.allowedSources,
+            scope: table.apiKeys.scope,
             lastUsedAt: table.apiKeys.lastUsedAt,
             expiresAt: table.apiKeys.expiresAt,
             isActive: table.apiKeys.isActive,

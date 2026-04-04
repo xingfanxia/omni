@@ -33,7 +33,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         return json({ error: 'Invalid JSON in request body' }, { status: 400 })
     }
 
-    const { name, expires_at, allowed_sources } = body
+    const { name, expires_at, allowed_sources, scope: scopeInput } = body
 
     if (!name || typeof name !== 'string' || name.trim().length === 0 || name.trim().length > 255) {
         return json({ error: 'Name is required (max 255 characters)' }, { status: 400 })
@@ -59,14 +59,18 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         allowedSources = allowed_sources as string[]
     }
 
+    // Validate scope
+    const scope = scopeInput === 'user' ? 'user' : 'public' as 'public' | 'user'
+
     try {
-        const result = await createApiKey(locals.user.id, name.trim(), expiresAt, allowedSources)
+        const result = await createApiKey(locals.user.id, name.trim(), expiresAt, allowedSources, scope)
         return json(
             {
                 id: result.id,
                 key: result.key,
                 prefix: result.prefix,
                 allowed_sources: allowedSources,
+                scope,
                 message: 'Store this key securely — it will not be shown again.',
             },
             { status: 201 },

@@ -49,8 +49,13 @@ export const POST: RequestHandler = async ({ request, fetch, locals }) => {
         mode: ['fulltext', 'semantic', 'hybrid'].includes(body.mode as string)
             ? body.mode
             : 'hybrid',
-        user_email: locals.user.email,
-        user_id: locals.user.id,
+        // 'public' scope: use sentinel email so permission filter only matches public docs
+        // 'user' scope (or cookie auth): pass real user identity for full permission filtering
+        user_email:
+            locals.apiKeyScope === 'public'
+                ? '__public_access__@omni.internal'
+                : locals.user.email,
+        user_id: locals.apiKeyScope === 'public' ? undefined : locals.user.id,
     }
 
     logger.debug('Agent search request', { query: queryData.query, mode: queryData.mode })
