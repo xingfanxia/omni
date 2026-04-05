@@ -2,6 +2,7 @@ target/
 **/node_modules/
 **/dist/
 .env
+.mcp.json
 benchmarks/benchmarks
 benchmarks/data
 benchmarks/results
