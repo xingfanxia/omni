@@ -4,10 +4,10 @@
 
 Omni as the primary knowledge backend for AI agents (zylos/薄荷 and others) to access company internal information across Google Workspace, Notion, Slack, HubSpot, and Telegram.
 
-## Current State (2026-04-04)
+## Current State (2026-04-05)
 
 - **Fork**: xingfanxia/omni — 4 bug fixes merged upstream (#109, #110, #111), 2 feature PRs open (#112, #113)
-- **Indexing**: Gmail (27K), Google Drive (3.5K), Slack (3K), HubSpot (75K), Notion (5.9K) — **114K+ docs**
+- **Indexing**: Gmail (32K), Google Drive (3.5K), Slack (3K), HubSpot (75K), Notion (5.9K) — **120K docs**
 - **Search**: fulltext/semantic/hybrid via Postgres (ParadeDB BM25 + pgvector), <300ms
 - **API**: Full agent API at `/api/v1/*` with three-level access control
 - **Skills**: `omni-search`, `omni-doc`, `omni-status` installed at `~/.claude/skills/`
@@ -261,6 +261,16 @@ docker compose --profile telegram up -d
 | #112 | API key auth + source scoping + 3-level permission scope (public/user/admin) |
 | #113 | Agent API endpoints (/api/v1/search, documents, health, sources) with scope enforcement |
 
+### Fork-only fixes (not yet PR'd)
+| Fix | What |
+|-----|------|
+| Gmail batch 429 retry | Per-thread 429s inside batch responses are retried with exponential backoff instead of silently dropped |
+| Adaptive backpressure | Pauses 3s before next batch when 429s detected, reducing rate limit hits proactively |
+| Batch truncation retry | Threads missing from truncated batch responses are retried instead of lost |
+| Connector-manager body limit | Raised `/sdk/extract-content` from 2MB default to 100MB for large PDFs |
+| UI dedup context | Sync status shows "(X indexed, scanned includes duplicates across users)" |
+| Detailed sync logging | Per-user breakdown: listed, indexed, updated, deduped, unchanged, failed |
+
 ---
 
 ## Claude Code Skills
@@ -279,13 +289,15 @@ Environment: `OMNI_API_KEY` must be set (in `~/zylos/.env` for 薄荷).
 
 ## Sync Schedule
 
-| Source | Interval | Mode |
-|--------|----------|------|
-| Gmail | 30 min | Incremental (new threads) |
-| Google Drive | 30 min | Incremental (modified files) |
-| Slack | 30 min | Incremental (new messages) |
-| Notion | 60 min | Incremental (edited pages) |
-| HubSpot | 60 min | Incremental (updated records) |
+| Source | Interval | Mode | How incremental works |
+|--------|----------|------|----------------------|
+| Gmail | 30 min | Incremental | `historyId` per user — only threads changed since last sync. Falls back to full if history expired (~30 days). Per-thread timestamp check skips unchanged. |
+| Google Drive | 30 min | Incremental | Change tokens per user — only modified files since last sync |
+| Slack | 30 min | Incremental | New messages since last sync |
+| Notion | 60 min | Incremental | `last_edited_time` — only pages edited since last sync |
+| HubSpot | 60 min | Incremental | Re-checks all records for updates |
+
+**Gmail deduplication**: Same thread appears for sender + all recipients. The connector tracks processed thread IDs across users and only indexes each thread once. This is why "scanned" (sum of all users' thread lists) > "indexed" (unique threads).
 
 ---
 
@@ -301,7 +313,9 @@ Environment: `OMNI_API_KEY` must be set (in `~/zylos/.env` for 薄荷).
 
 | Priority | Task | Status |
 |----------|------|--------|
+| P0 | Restart 薄荷 to pick up `OMNI_API_KEY` from `~/zylos/.env` | TODO |
 | P1 | GCP deployment | TODO |
 | P1 | Telegram: get api_id/api_hash, run auth, select chats | TODO |
+| P1 | PR fork-only fixes upstream (batch 429 retry, backpressure, UI) | TODO |
 | P2 | Wait for upstream to review/merge #112 + #113 | Open |
 | P3 | Iterate on search quality based on agent usage | Ongoing |
