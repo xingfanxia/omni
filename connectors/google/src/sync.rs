@@ -2028,6 +2028,10 @@ impl SyncManager {
     ) -> Result<(usize, usize)> {
         let mut total_processed = 0;
         let mut total_updated = 0;
+        let mut total_deduped = 0usize;
+        let mut total_skipped_unchanged = 0usize;
+        let mut total_failed = 0usize;
+        let total_listed = thread_ids.len();
         let sync_state = SyncState::new(self.redis_client.clone());
         const THREAD_BATCH_SIZE: usize = 50;
 
@@ -2052,6 +2056,7 @@ impl SyncManager {
                         "Thread {} already processed by another user, skipping",
                         thread_id
                     );
+                    total_deduped += 1;
                     continue;
                 }
 
@@ -2122,6 +2127,7 @@ impl SyncManager {
                             rate_limited_ids.push(thread_id.clone());
                         }
                         BatchThreadResult::Failed(e) => {
+                            total_failed += 1;
                             warn!("Failed to fetch thread {}: {}", thread_id, e);
                         }
                     }
@@ -2169,6 +2175,7 @@ impl SyncManager {
                                             "Thread {} already synced (latest: {}, last synced: {}), skipping",
                                             thread_id, gmail_thread.latest_date, last_synced_date
                                         );
+                                        total_skipped_unchanged += 1;
                                         continue;
                                     } else {
                                         debug!(
@@ -2402,8 +2409,10 @@ impl SyncManager {
         }
 
         info!(
-            "Completed Gmail processing for user {}: {} threads processed, {} updated",
-            user_email, total_processed, total_updated
+            "Completed Gmail processing for user {}: {} listed, {} indexed, {} updated \
+            (skipped: {} deduped across users, {} unchanged, {} failed/inaccessible)",
+            user_email, total_listed, total_processed, total_updated,
+            total_deduped, total_skipped_unchanged, total_failed
         );
 
         Ok((total_processed, total_updated))
