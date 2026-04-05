@@ -242,7 +242,10 @@
                                                 <span
                                                     >Syncing... {sync.documentsScanned.toLocaleString()}
                                                     {noun} scanned{#if sync.documentsUpdated && sync.documentsUpdated > 0},
-                                                        {sync.documentsUpdated.toLocaleString()} updated{/if}</span>
+                                                        {sync.documentsUpdated.toLocaleString()} updated{/if}
+                                                    {#if documentCounts[source.id]}
+                                                        ({documentCounts[source.id].toLocaleString()} indexed, scanned includes duplicates across users)
+                                                    {/if}</span>
                                             {:else}
                                                 <span>Syncing...</span>
                                             {/if}
@@ -252,11 +255,13 @@
                                                     sync?.completedAt ?? null,
                                                 )}</span>
                                         {/if}
-                                        {#if documentCounts[source.id]}
-                                            <span class="text-muted-foreground">·</span>
-                                            <span
-                                                >{documentCounts[source.id].toLocaleString()}
-                                                {noun} indexed</span>
+                                        {#if !sync || sync.status !== 'running'}
+                                            {#if documentCounts[source.id]}
+                                                <span class="text-muted-foreground">·</span>
+                                                <span
+                                                    >{documentCounts[source.id].toLocaleString()}
+                                                    {noun} indexed</span>
+                                            {/if}
                                         {/if}
                                     </div>
                                 </div>
