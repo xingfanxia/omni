@@ -1,13 +1,14 @@
 import { json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
 import { createApiKey, listApiKeys, revokeApiKey, deleteApiKey } from '$lib/server/apiKeys'
+import { isValid } from 'ulid'
 
 function parseJson(request: Request): Promise<Record<string, unknown>> {
     return request.json().catch(() => null) as Promise<Record<string, unknown>>
 }
 
 function isValidUlid(id: unknown): id is string {
-    return typeof id === 'string' && /^[0-9A-HJKMNP-TV-Z]{26}$/i.test(id)
+    return typeof id === 'string' && isValid(id)
 }
 
 export const GET: RequestHandler = async ({ locals }) => {
