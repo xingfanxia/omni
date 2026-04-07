@@ -7,10 +7,6 @@ on:
   pull_request:
     branches: [main, master]
 
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
-
 permissions:
   contents: write
   packages: write

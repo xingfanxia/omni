@@ -3,6 +3,10 @@ name: Package Deployment Configs
 on:
   workflow_call:
 
+concurrency:
+  group: package-deployment-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   package:
     runs-on: ubuntu-latest

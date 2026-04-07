@@ -26,6 +26,10 @@ on:
         type: string
         default: ''
 
+concurrency:
+  group: build-${{ inputs.image-name }}${{ inputs.tag-suffix }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ${{ github.repository }}

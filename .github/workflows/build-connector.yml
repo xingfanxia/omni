@@ -10,6 +10,10 @@ on:
         required: true
         type: string
 
+concurrency:
+  group: build-omni-${{ inputs.connector-name }}-connector-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ${{ github.repository }}
