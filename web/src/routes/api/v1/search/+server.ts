@@ -50,18 +50,11 @@ export const POST: RequestHandler = async ({ request, fetch, locals }) => {
             ? body.mode
             : 'hybrid',
         // 'admin' scope: omit user_email → searcher skips permission filter → all docs
-        // 'user' scope (or cookie auth): real user identity → user's permitted docs
-        // 'public' scope: sentinel email → only public docs
+        // 'user'/'public' scope (or cookie auth): real user identity → user's permitted docs
         user_email:
-            locals.apiKeyScope === 'admin'
-                ? undefined
-                : locals.apiKeyScope === 'public'
-                  ? '__public_access__@omni.internal'
-                  : locals.user.email,
+            locals.apiKeyScope === 'admin' ? undefined : locals.user.email,
         user_id:
-            locals.apiKeyScope === 'admin' || locals.apiKeyScope === 'public'
-                ? undefined
-                : locals.user.id,
+            locals.apiKeyScope === 'admin' ? undefined : locals.user.id,
     }
 
     logger.debug('Agent search request', { query: queryData.query, mode: queryData.mode })

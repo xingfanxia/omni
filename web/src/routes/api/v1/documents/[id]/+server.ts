@@ -1,5 +1,6 @@
 import { env } from '$env/dynamic/private'
 import { json } from '@sveltejs/kit'
+import type { SearchResponse } from '$lib/types/search'
 import type { RequestHandler } from './$types'
 
 export const GET: RequestHandler = async ({ params, url, fetch, locals }) => {
@@ -22,15 +23,9 @@ export const GET: RequestHandler = async ({ params, url, fetch, locals }) => {
         query: 'content',
         document_id: documentId,
         user_email:
-            locals.apiKeyScope === 'admin'
-                ? undefined
-                : locals.apiKeyScope === 'public'
-                  ? '__public_access__@omni.internal'
-                  : locals.user.email,
+            locals.apiKeyScope === 'admin' ? undefined : locals.user.email,
         user_id:
-            locals.apiKeyScope === 'admin' || locals.apiKeyScope === 'public'
-                ? undefined
-                : locals.user.id,
+            locals.apiKeyScope === 'admin' ? undefined : locals.user.id,
         limit: 1,
     }
 
@@ -68,7 +63,7 @@ export const GET: RequestHandler = async ({ params, url, fetch, locals }) => {
             return json({ error: 'Service unavailable' }, { status: 502 })
         }
 
-        const searchResults = await response.json()
+        const searchResults: SearchResponse = await response.json()
         const results = searchResults.results ?? []
 
         if (results.length === 0) {
