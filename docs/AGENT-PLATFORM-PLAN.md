@@ -4,16 +4,16 @@
 
 Omni as the primary knowledge backend for AI agents (zylos/薄荷, OpenClaw, Claude Code) to access company internal information across Google Workspace, Notion, Slack, HubSpot, and Telegram.
 
-## Current State (2026-04-06)
+## Current State (2026-04-09)
 
 - **Production**: https://omni.computelabs.ai — GCE `cl-onyx` (n2-highmem-4, 32GB, us-west1-b)
-- **Fork**: xingfanxia/omni — 4 bug fixes merged upstream (#109-#111), 5 PRs open (#112-#115, #119)
-- **Indexing**: Gmail (32K), Google Drive (3.5K), Slack (3K), HubSpot (75K), Notion (5.9K) — **120K docs**
+- **Fork**: xingfanxia/omni — bug fixes merged upstream (BM25 #119 and others), Telegram connector PR open (#135)
+- **Indexing**: Gmail (34K), Google Drive (3.5K), Slack (3K), HubSpot (76K), Notion (5.9K), **Telegram (~17K: AX 7.7K + AZ 9.1K)** — **~150K docs**
 - **Search**: fulltext/semantic/hybrid via Postgres (ParadeDB BM25 + pgvector)
 - **API**: Full agent API at `/api/v1/*` with three-level access control
 - **MCP Server**: TypeScript, `@modelcontextprotocol/sdk`, 3 tools (omni_search, omni_document, omni_status)
 - **Skills**: `omni-search`, `omni-doc`, `omni-status` deployed to all agents
-- **Telegram**: Connector built with Telethon (full history) + Bot API (forward-only), not yet authed
+- **Telegram**: Live with two admin-only sources (AX personal + AZ team BD account, 98 chats total). Full Telethon backend, `allowed_users` config for per-source visibility restriction, admin UI with setup dialog and chat picker, multi-account support. Upstream PR #135.
 
 ## Architecture
 
@@ -188,6 +188,7 @@ API keys have **two dimensions** of access control:
 
 | Priority | Task | Status |
 |----------|------|--------|
-| P1 | Telegram: get api_id/api_hash, run auth, select chats | TODO |
-| P2 | Wait for upstream to review/merge #112-#115, #119 | Open |
+| P1 | Upstream PR #135 (Telegram connector + admin UI) review | Open |
+| P2 | Fix root-cause encryption bug that required the config.credentials plaintext workaround (now cleaned up, but upstream fix would land in service_credentials decryption path) | Backlog |
 | P3 | Iterate on search quality based on agent usage | Ongoing |
+| P4 | Test "Add Another Account" end-to-end flow on the web UI — should now work after the action envelope unwrap fix + plaintext cleanup | TODO |
