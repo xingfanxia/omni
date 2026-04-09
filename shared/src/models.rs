@@ -172,6 +172,7 @@ pub enum SourceType {
     Linear,
     PaperlessNgx,
     Nextcloud,
+    Telegram,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, sqlx::Type, PartialEq)]
@@ -193,6 +194,7 @@ pub enum ServiceProvider {
     #[serde(rename = "paperless_ngx")]
     PaperlessNgx,
     Nextcloud,
+    Telegram,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, sqlx::Type, PartialEq)]
