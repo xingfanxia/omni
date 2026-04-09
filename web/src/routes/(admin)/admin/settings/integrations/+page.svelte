@@ -20,6 +20,7 @@
     import linearLogo from '$lib/images/icons/linear.svg'
     import githubLogo from '$lib/images/icons/github.svg'
     import nextcloudLogo from '$lib/images/icons/nextcloud.svg'
+    import telegramLogo from '$lib/images/icons/telegram.svg'
     import { getSourceIconPath } from '$lib/utils/icons'
     import { Cloud, Globe, HardDrive, Mail } from '@lucide/svelte'
     import { toast } from 'svelte-sonner'
@@ -38,6 +39,7 @@
     import GithubConnectorSetup from '$lib/components/github-connector-setup.svelte'
     import PaperlessConnectorSetup from '$lib/components/paperless-connector-setup.svelte'
     import NextcloudConnectorSetup from '$lib/components/nextcloud-connector-setup.svelte'
+    import TelegramConnectorSetup from '$lib/components/telegram-connector-setup.svelte'
     import { SourceType } from '$lib/types'
     import { invalidateAll } from '$app/navigation'
     import { onMount, onDestroy } from 'svelte'
@@ -132,6 +134,7 @@
         linear: linearLogo,
         github: githubLogo,
         nextcloud: nextcloudLogo,
+        telegram: telegramLogo,
     }
 
     function getIntegrationIcon(integrationId: string): string | null {
@@ -170,6 +173,7 @@
         [SourceType.GITHUB]: 'documents',
         [SourceType.PAPERLESS_NGX]: 'documents',
         [SourceType.NEXTCLOUD]: 'files',
+        [SourceType.TELEGRAM]: 'messages',
     }
 
     function getSourceNoun(sourceType: SourceType): string {
@@ -430,5 +434,10 @@
 
 <NextcloudConnectorSetup
     open={activeSetup === 'nextcloud'}
+    onSuccess={handleSetupSuccess}
+    onCancel={closeSetup} />
+
+<TelegramConnectorSetup
+    open={activeSetup === 'telegram'}
     onSuccess={handleSetupSuccess}
     onCancel={closeSetup} />

@@ -22,6 +22,7 @@ import notionIcon from '$lib/images/icons/notion.svg'
 import linearIcon from '$lib/images/icons/linear.svg'
 import githubIcon from '$lib/images/icons/github.svg'
 import nextcloudIcon from '$lib/images/icons/nextcloud.svg'
+import telegramIcon from '$lib/images/icons/telegram.svg'
 
 // Google Workspace MIME types
 const GOOGLE_DOCS_MIMETYPES = [
@@ -63,6 +64,7 @@ const SOURCE_TYPE_ICONS: Record<string, string> = {
     [SourceType.CLICKUP]: clickupIcon,
     [SourceType.NOTION]: notionIcon,
     [SourceType.NEXTCLOUD]: nextcloudIcon,
+    [SourceType.TELEGRAM]: telegramIcon,
 }
 
 // Get icon based on source type and content type
@@ -149,6 +151,8 @@ export function inferSourceFromUrl(url: string): SourceType | null {
         urlLower.includes('nextcloud')
     )
         return SourceType.NEXTCLOUD
+    if (urlLower.includes('t.me') || urlLower.includes('telegram.org'))
+        return SourceType.TELEGRAM
 
     return null
 }
@@ -206,6 +210,7 @@ export function getSourceDisplayName(sourceType: SourceType) {
         [SourceType.MS_TEAMS]: 'Teams',
         [SourceType.IMAP]: 'IMAP',
         [SourceType.NEXTCLOUD]: 'Nextcloud',
+        [SourceType.TELEGRAM]: 'Telegram',
     }
 
     return sourceDisplayNames[sourceType]
