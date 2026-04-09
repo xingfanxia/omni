@@ -32,7 +32,11 @@ The backend is auto-detected from the credentials shape — no explicit mode swi
 **How to obtain:**
 
 1. Go to https://my.telegram.org/apps and create an app. Note the `api_id` and `api_hash`.
-2. Run the included auth script to generate a session string (one-time interactive flow):
+2. Sign in to Telegram. You can do this two ways:
+
+   **Option A — via the Omni admin UI (recommended):** open "Connect Telegram" in the integrations settings, pick *Sign in with phone number*, paste your `api_id`/`api_hash`, enter your phone number, then the SMS login code, then (if enabled) your 2FA password. Omni stores the resulting session string automatically — no file copy-paste, no shell script.
+
+   **Option B — via the CLI (useful for CI / air-gapped runs):**
 
    ```bash
    python connectors/telegram/scripts/auth.py \
@@ -40,9 +44,9 @@ The backend is auto-detected from the credentials shape — no explicit mode swi
      --api-hash YOUR_API_HASH
    ```
 
-   The script prompts for the phone number, SMS code, and 2FA password if enabled. It prints a session string at the end.
+   The script prompts for the phone number, SMS code, and 2FA password if enabled. It prints a session string at the end. In the Omni UI, pick *Paste existing session string* and paste the value.
 
-3. Store all three values (`api_id`, `api_hash`, `session`) as the credentials for a new Telegram source via the Omni admin UI or `/api/service-credentials` endpoint.
+3. Either path stores the three values (`api_id`, `api_hash`, `session`) as credentials for a new Telegram source. You can also POST directly to `/api/service-credentials`.
 
 **Security note:** The session string grants full access to the Telegram account. It does not expire automatically. Rotate periodically and audit active sessions via Telegram Settings → Devices.
 

@@ -64,6 +64,57 @@ class TelegramConnector(Connector):
                 input_schema={"type": "object", "properties": {}},
                 mode="read",
             ),
+            ActionDefinition(
+                name="auth_send_code",
+                description=(
+                    "Start the Telethon interactive auth flow: request an SMS "
+                    "login code from Telegram. Returns a partial StringSession "
+                    "(the DC auth key only — no user is logged in yet) plus the "
+                    "phone_code_hash that must be passed to auth_verify_code."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "api_id": {"type": "integer"},
+                        "api_hash": {"type": "string"},
+                        "phone": {"type": "string"},
+                    },
+                    "required": ["api_id", "api_hash", "phone"],
+                },
+                mode="read",
+            ),
+            ActionDefinition(
+                name="auth_verify_code",
+                description=(
+                    "Verify the SMS code (and, if the account has 2FA enabled, "
+                    "the 2FA password). On success returns a full StringSession "
+                    "that can be written into the source credentials. If the "
+                    "account requires 2FA but no password was supplied, returns "
+                    "needs_2fa=true so the UI can prompt for it and call this "
+                    "action again."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "api_id": {"type": "integer"},
+                        "api_hash": {"type": "string"},
+                        "partial_session": {"type": "string"},
+                        "phone": {"type": "string"},
+                        "phone_code_hash": {"type": "string"},
+                        "code": {"type": "string"},
+                        "password": {"type": "string"},
+                    },
+                    "required": [
+                        "api_id",
+                        "api_hash",
+                        "partial_session",
+                        "phone",
+                        "phone_code_hash",
+                        "code",
+                    ],
+                },
+                mode="read",
+            ),
         ]
 
     async def execute_action(
@@ -83,6 +134,10 @@ class TelegramConnector(Connector):
 
         if action == "list_chats":
             return await self._action_list_chats(credentials)
+        if action == "auth_send_code":
+            return await self._action_auth_send_code(params)
+        if action == "auth_verify_code":
+            return await self._action_auth_verify_code(params)
         return ActionResponse.not_supported(action)
 
     async def _action_list_chats(self, credentials: dict[str, Any]) -> ActionResponse:
@@ -108,6 +163,130 @@ class TelegramConnector(Connector):
             return ActionResponse.failure(f"Failed to list chats: {e}")
         finally:
             await client.close()
+
+    async def _action_auth_send_code(
+        self, params: dict[str, Any]
+    ) -> ActionResponse:
+        """Start the interactive Telethon auth flow: request an SMS code.
+
+        Stateless: returns a serialized `partial_session` (the DC auth key
+        only — no user is logged in yet) plus the `phone_code_hash` that the
+        caller must pass back to auth_verify_code. The frontend holds this
+        state between steps.
+        """
+        from telethon import TelegramClient
+        from telethon.sessions import StringSession
+
+        api_id = params.get("api_id")
+        api_hash = params.get("api_hash")
+        phone = params.get("phone")
+        if not (api_id and api_hash and phone):
+            return ActionResponse.failure(
+                "auth_send_code requires api_id, api_hash, and phone"
+            )
+
+        try:
+            api_id_int = int(api_id)
+        except (TypeError, ValueError):
+            return ActionResponse.failure("api_id must be an integer")
+
+        client = TelegramClient(StringSession(), api_id_int, str(api_hash))
+        try:
+            await client.connect()
+            sent = await client.send_code_request(str(phone))
+            partial = client.session.save()
+            return ActionResponse.success(
+                {
+                    "partial_session": partial,
+                    "phone_code_hash": sent.phone_code_hash,
+                }
+            )
+        except Exception as e:
+            logger.exception("auth_send_code failed")
+            return ActionResponse.failure(f"Failed to send code: {e}")
+        finally:
+            await client.disconnect()  # type: ignore[func-returns-value]
+
+    async def _action_auth_verify_code(
+        self, params: dict[str, Any]
+    ) -> ActionResponse:
+        """Verify the SMS code (and optional 2FA password).
+
+        On success returns a full StringSession that the caller writes into
+        the source credentials. If the account requires 2FA but no password
+        was supplied, returns `needs_2fa=true` so the UI can prompt and call
+        this action again with `password` set.
+        """
+        from telethon import TelegramClient
+        from telethon.errors import SessionPasswordNeededError
+        from telethon.sessions import StringSession
+
+        api_id = params.get("api_id")
+        api_hash = params.get("api_hash")
+        partial_session = params.get("partial_session")
+        phone = params.get("phone")
+        phone_code_hash = params.get("phone_code_hash")
+        code = params.get("code")
+        password = params.get("password")  # optional
+
+        if not all([api_id, api_hash, partial_session, phone, phone_code_hash, code]):
+            return ActionResponse.failure(
+                "auth_verify_code requires api_id, api_hash, partial_session, "
+                "phone, phone_code_hash, and code"
+            )
+
+        try:
+            api_id_int = int(api_id)
+        except (TypeError, ValueError):
+            return ActionResponse.failure("api_id must be an integer")
+
+        client = TelegramClient(
+            StringSession(str(partial_session)),
+            api_id_int,
+            str(api_hash),
+        )
+        try:
+            await client.connect()
+            try:
+                await client.sign_in(
+                    phone=str(phone),
+                    code=str(code),
+                    phone_code_hash=str(phone_code_hash),
+                )
+            except SessionPasswordNeededError:
+                if not password:
+                    # Pass the in-flight session back so the frontend can
+                    # re-use it (avoids re-sending a new SMS code).
+                    return ActionResponse.success(
+                        {
+                            "needs_2fa": True,
+                            "partial_session": client.session.save(),
+                        }
+                    )
+                await client.sign_in(password=str(password))
+
+            me = await client.get_me()
+            session = client.session.save()
+            username = getattr(me, "username", None)
+            first = getattr(me, "first_name", "") or ""
+            last = getattr(me, "last_name", "") or ""
+            display = f"{first} {last}".strip() or username or str(getattr(me, "id", ""))
+            return ActionResponse.success(
+                {
+                    "session": session,
+                    "user": {
+                        "id": getattr(me, "id", None),
+                        "username": username,
+                        "display_name": display,
+                        "phone": getattr(me, "phone", None),
+                    },
+                }
+            )
+        except Exception as e:
+            logger.exception("auth_verify_code failed")
+            return ActionResponse.failure(f"Failed to verify code: {e}")
+        finally:
+            await client.disconnect()  # type: ignore[func-returns-value]
 
     async def sync(
         self,
