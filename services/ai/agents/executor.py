@@ -25,10 +25,12 @@ from config import (
 )
 from db.documents import DocumentsRepository
 from db.models import Source
+from db.usage import UsageRepository
 from db.users import UsersRepository
 from providers import LLMProvider
 from prompts import build_agent_system_prompt
 from services.compaction import ConversationCompactor
+from services.usage import UsageTracker, UsageContext, UsagePurpose, track_usage
 from state import AppState
 from tools import (
     ToolRegistry,
@@ -60,10 +62,8 @@ def _resolve_llm_provider(state: AppState, agent: Agent) -> LLMProvider:
 
     if agent.model_id and agent.model_id in models:
         return models[agent.model_id]
-
     if state.default_model_id and state.default_model_id in models:
         return models[state.default_model_id]
-
     return next(iter(models.values()))
 
 
@@ -244,9 +244,28 @@ async def _run_agent_loop(
         and app_state.secondary_model_id in app_state.models
     ):
         secondary_provider = app_state.models[app_state.secondary_model_id]
+
+    def _on_compaction_usage(usage):
+        track_usage(
+            UsageRepository(),
+            UsageContext(
+                user_id=agent.user_id if not is_org_agent else None,
+                model_id=secondary_provider.model_record_id,
+                model_name=secondary_provider.model_name,
+                provider_type=secondary_provider.provider_type,
+                purpose=UsagePurpose.COMPACTION,
+                agent_run_id=run.id,
+            ),
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            cache_read_tokens=usage.cache_read_tokens,
+            cache_creation_tokens=usage.cache_creation_tokens,
+        )
+
     compactor = ConversationCompactor(
         llm_provider=secondary_provider,
         redis_client=app_state.redis_client,
+        on_usage=_on_compaction_usage,
     )
 
     for iteration in range(AGENT_MAX_ITERATIONS):
@@ -263,7 +282,21 @@ async def _run_agent_loop(
         # Call LLM (non-streaming — collect full response)
         content_blocks: list[TextBlockParam | ToolUseBlockParam] = []
 
-        stream = llm_provider.stream_response(
+        usage_repo = UsageRepository()
+        tracker = UsageTracker(
+            usage_repo,
+            UsageContext(
+                user_id=agent.user_id if not is_org_agent else None,
+                model_id=llm_provider.model_record_id,
+                model_name=llm_provider.model_name,
+                provider_type=llm_provider.provider_type,
+                purpose=UsagePurpose.AGENT_RUN,
+                agent_run_id=run.id,
+            ),
+            provider=llm_provider,
+        )
+
+        raw_stream = llm_provider.stream_response(
             prompt="",
             messages=conversation_messages,
             tools=all_tools,
@@ -273,7 +306,7 @@ async def _run_agent_loop(
             system_prompt=system_prompt,
         )
 
-        async for event in stream:
+        async for event in tracker.wrap_stream(raw_stream):
             if event.type == "content_block_start":
                 if event.content_block.type == "text":
                     content_blocks.append(
@@ -303,6 +336,8 @@ async def _run_agent_loop(
                         )
             elif event.type == "message_stop":
                 break
+
+        tracker.save()
 
         # Parse tool call inputs — on failure, send error back to LLM
         tool_calls = [b for b in content_blocks if b["type"] == "tool_use"]
@@ -378,7 +413,19 @@ async def _run_agent_loop(
     conversation_messages.append(summary_prompt_message)
 
     summary_blocks: list = []
-    summary_stream = llm_provider.stream_response(
+    summary_tracker = UsageTracker(
+        UsageRepository(),
+        UsageContext(
+            user_id=agent.user_id if not is_org_agent else None,
+            model_id=llm_provider.model_record_id,
+            model_name=llm_provider.model_name,
+            provider_type=llm_provider.provider_type,
+            purpose=UsagePurpose.AGENT_SUMMARY,
+            agent_run_id=run.id,
+        ),
+        provider=llm_provider,
+    )
+    raw_summary_stream = llm_provider.stream_response(
         prompt="",
         messages=conversation_messages,
         tools=[],
@@ -386,13 +433,15 @@ async def _run_agent_loop(
         temperature=0.3,
         system_prompt=system_prompt,
     )
-    async for event in summary_stream:
+    async for event in summary_tracker.wrap_stream(raw_summary_stream):
         if event.type == "content_block_start" and event.content_block.type == "text":
             summary_blocks.append(event.content_block.text)
         elif event.type == "content_block_delta" and event.delta.type == "text_delta":
             summary_blocks.append(event.delta.text)
         elif event.type == "message_stop":
             break
+
+    summary_tracker.save()
 
     summary = "".join(summary_blocks).strip()
 
