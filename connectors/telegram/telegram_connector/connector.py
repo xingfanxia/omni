@@ -82,6 +82,7 @@ class TelegramConnector(Connector):
                     "required": ["api_id", "api_hash", "phone"],
                 },
                 mode="read",
+                authenticated=False,
             ),
             ActionDefinition(
                 name="auth_verify_code",
@@ -114,6 +115,7 @@ class TelegramConnector(Connector):
                     ],
                 },
                 mode="read",
+                authenticated=False,
             ),
         ]
 

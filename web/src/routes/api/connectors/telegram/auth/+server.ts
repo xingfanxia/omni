@@ -5,24 +5,12 @@ import { logger } from '$lib/server/logger'
 
 // Pre-source auth action dispatch for the Telegram connector.
 //
-// Unlike `/api/sources/:id/action` (which looks up credentials from an
-// existing source), this route runs auth actions BEFORE a source exists —
-// the whole point is to help the user build their initial credentials via
-// the web UI instead of `scripts/auth.py`.
-//
-// Strategy: ask connector-manager which URL the telegram connector is
-// listening on, then POST directly to its `/action` endpoint with an empty
-// credentials envelope. The Python connector's `auth_send_code` and
-// `auth_verify_code` actions take all their input from `params`, so they
-// don't need a real credentials lookup.
+// Routes through connector-manager's `/connectors/:source_type/action`
+// endpoint, which checks the action's `authenticated` flag in the manifest
+// and skips credential loading for unauthenticated actions like
+// `auth_send_code` and `auth_verify_code`.
 //
 // Body: { action: "auth_send_code" | "auth_verify_code", params: {...} }
-
-interface ConnectorInfo {
-    source_type: string
-    url: string
-    healthy: boolean
-}
 
 const ALLOWED_ACTIONS = new Set(['auth_send_code', 'auth_verify_code'])
 
@@ -57,49 +45,23 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     const config = getConfig()
     const connectorManagerUrl = config.services.connectorManagerUrl
 
-    // Look up the telegram connector's URL from the connector registry.
-    let telegramConnectorUrl: string | undefined
-    try {
-        const res = await fetch(`${connectorManagerUrl}/connectors`)
-        if (!res.ok) {
-            throw new Error(`connector-manager /connectors returned ${res.status}`)
-        }
-        const connectors = (await res.json()) as ConnectorInfo[]
-        const match = connectors.find((c) => c.source_type === 'telegram' && c.url)
-        telegramConnectorUrl = match?.url
-    } catch (err) {
-        logger.error('Failed to discover telegram connector URL', { err })
-        throw error(502, 'Unable to reach connector-manager')
-    }
-
-    if (!telegramConnectorUrl) {
-        throw error(
-            503,
-            'Telegram connector is not registered. Is the telegram-connector service running?',
-        )
-    }
-
-    // Call the Python connector directly. No credentials needed — the auth
-    // actions derive everything from `params`.
+    // Dispatch through connector-manager — it handles connector URL lookup
+    // and verifies the action is marked `authenticated: false` in the manifest.
     let actionRes: Response
     try {
-        actionRes = await fetch(`${telegramConnectorUrl}/action`, {
+        actionRes = await fetch(`${connectorManagerUrl}/connectors/telegram/action`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                action,
-                params,
-                credentials: {},
-            }),
+            body: JSON.stringify({ action, params }),
         })
     } catch (err) {
-        logger.error('Telegram connector unreachable', { err, telegramConnectorUrl })
-        throw error(502, 'Telegram connector unreachable')
+        logger.error('Failed to reach connector-manager', { err })
+        throw error(502, 'Unable to reach connector-manager')
     }
 
     if (!actionRes.ok) {
         const errBody = await actionRes.text().catch(() => '(no body)')
-        logger.error('Telegram connector returned non-200', {
+        logger.error('Connector-manager action dispatch failed', {
             status: actionRes.status,
             body: errBody,
         })
