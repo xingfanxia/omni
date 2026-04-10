@@ -1,9 +1,9 @@
 import asyncio
 import json
 import logging
-from dataclasses import dataclass
 import pathlib
 from typing import cast
+from dataclasses import dataclass
 
 import httpx
 from fastapi import APIRouter, HTTPException, Path, Query, Request
@@ -37,9 +37,11 @@ from config import (
     APPROVAL_TIMEOUT_SECONDS,
     SANDBOX_URL,
 )
+from db.usage import UsageRepository
 from providers import LLMProvider
 from prompts import build_chat_system_prompt, build_agent_chat_system_prompt
 from services.compaction import ConversationCompactor
+from services.usage import UsageTracker, UsageContext, UsagePurpose, track_usage
 from state import AppState
 
 from anthropic import MessageStreamEvent, AsyncStream
@@ -72,39 +74,31 @@ Based on the first message(s) of a conversation, generate a title that is:
 Just respond with the title text, nothing else."""
 
 
-def _resolve_llm_provider(state: AppState, chat: Chat) -> LLMProvider:
-    """Resolve which LLM provider to use for a chat.
-    Priority: chat's model -> default model -> first available.
+def _resolve_provider(state: AppState, model_id: str | None) -> LLMProvider:
+    """Resolve a model by ID, returning the provider.
+    Priority: requested model -> default model -> first available.
     """
     models = state.models
     if not models:
         raise HTTPException(status_code=503, detail="No models configured")
 
-    if chat.model_id and chat.model_id in models:
-        return models[chat.model_id]
-
+    if model_id and model_id in models:
+        return models[model_id]
     if state.default_model_id and state.default_model_id in models:
         return models[state.default_model_id]
-
     return next(iter(models.values()))
+
+
+def _resolve_llm_provider(state: AppState, chat: Chat) -> LLMProvider:
+    """Resolve which LLM provider to use for a chat."""
+    return _resolve_provider(state, chat.model_id)
 
 
 def _resolve_secondary_provider(state: AppState) -> LLMProvider:
     """Resolve the secondary (lightweight) model provider.
-    Priority: secondary model -> default model -> first available.
     Used for title generation, suggested questions, compaction, etc.
     """
-    models = state.models
-    if not models:
-        raise HTTPException(status_code=503, detail="No models configured")
-
-    if state.secondary_model_id and state.secondary_model_id in models:
-        return models[state.secondary_model_id]
-
-    if state.default_model_id and state.default_model_id in models:
-        return models[state.default_model_id]
-
-    return next(iter(models.values()))
+    return _resolve_provider(state, state.secondary_model_id or state.default_model_id)
 
 
 def convert_citation_to_param(citation_delta: CitationsDelta) -> TextCitationParam:
@@ -513,9 +507,28 @@ async def stream_chat(
 
     # Check if conversation needs compaction
     secondary_provider = _resolve_secondary_provider(request.app.state)
+
+    def _on_compaction_usage(usage):
+        track_usage(
+            UsageRepository(),
+            UsageContext(
+                user_id=chat.user_id,
+                model_id=secondary_provider.model_record_id,
+                model_name=secondary_provider.model_name,
+                provider_type=secondary_provider.provider_type,
+                purpose=UsagePurpose.COMPACTION,
+                chat_id=chat_id,
+            ),
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            cache_read_tokens=usage.cache_read_tokens,
+            cache_creation_tokens=usage.cache_creation_tokens,
+        )
+
     compactor = ConversationCompactor(
         llm_provider=secondary_provider,
         redis_client=redis_client,
+        on_usage=_on_compaction_usage,
     )
     if compactor.needs_compaction(messages, all_tools):
         logger.info(f"Compacting conversation for chat {chat_id}")
@@ -588,6 +601,8 @@ async def stream_chat(
                 original_user_query=original_user_query,
             )
 
+            usage_repo = UsageRepository()
+
             for iteration in range(AGENT_MAX_ITERATIONS):
                 # Check if client disconnected before starting expensive operations
                 if await request.is_disconnected():
@@ -605,15 +620,32 @@ async def stream_chat(
                 )
                 logger.debug(f"Tools available: {[tool['name'] for tool in all_tools]}")
 
-                stream: AsyncStream[MessageStreamEvent] = llm_provider.stream_response(
-                    prompt="",  # Not used when messages provided
-                    messages=conversation_messages,
-                    tools=all_tools,
-                    max_tokens=DEFAULT_MAX_TOKENS,
-                    temperature=DEFAULT_TEMPERATURE,
-                    top_p=DEFAULT_TOP_P,
-                    system_prompt=system_prompt,
+                tracker = UsageTracker(
+                    usage_repo,
+                    UsageContext(
+                        user_id=chat.user_id,
+                        model_id=llm_provider.model_record_id,
+                        model_name=llm_provider.model_name,
+                        provider_type=llm_provider.provider_type,
+                        purpose=UsagePurpose.CHAT,
+                        chat_id=chat_id,
+                    ),
+                    provider=llm_provider,
                 )
+
+                raw_stream: AsyncStream[MessageStreamEvent] = (
+                    llm_provider.stream_response(
+                        prompt="",  # Not used when messages provided
+                        messages=conversation_messages,
+                        tools=all_tools,
+                        max_tokens=DEFAULT_MAX_TOKENS,
+                        temperature=DEFAULT_TEMPERATURE,
+                        top_p=DEFAULT_TOP_P,
+                        system_prompt=system_prompt,
+                    )
+                )
+
+                stream = tracker.wrap_stream(raw_stream)
 
                 event_index = 0
                 message_stop_received = False
@@ -710,6 +742,8 @@ async def stream_chat(
 
                     if message_stop_received:
                         break
+
+                tracker.save()
 
                 # Parse tool call inputs. Convert to JSON.
                 tool_calls = [b for b in content_blocks if b["type"] == "tool_use"]
@@ -888,6 +922,23 @@ async def generate_chat_title(
             temperature=0.7,
             top_p=0.9,
         )
+
+        if llm_provider.last_usage:
+            track_usage(
+                UsageRepository(),
+                UsageContext(
+                    user_id=chat.user_id,
+                    model_id=llm_provider.model_record_id,
+                    model_name=llm_provider.model_name,
+                    provider_type=llm_provider.provider_type,
+                    purpose=UsagePurpose.TITLE_GENERATION,
+                    chat_id=chat_id,
+                ),
+                input_tokens=llm_provider.last_usage.input_tokens,
+                output_tokens=llm_provider.last_usage.output_tokens,
+                cache_read_tokens=llm_provider.last_usage.cache_read_tokens,
+                cache_creation_tokens=llm_provider.last_usage.cache_creation_tokens,
+            )
 
         # Clean up the title
         title = generated_title.strip().strip('"').strip("'")

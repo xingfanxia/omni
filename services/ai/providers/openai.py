@@ -12,8 +12,10 @@ from typing import Any
 from openai import AsyncOpenAI
 from anthropic.types import (
     Message,
+    MessageDeltaUsage,
     Usage,
     RawMessageStartEvent,
+    RawMessageDeltaEvent,
     RawContentBlockStartEvent,
     RawContentBlockDeltaEvent,
     RawContentBlockStopEvent,
@@ -24,8 +26,9 @@ from anthropic.types import (
     InputJSONDelta,
 )
 from anthropic.types.message_stream_event import MessageStreamEvent
+from anthropic.types.raw_message_delta_event import Delta
 
-from . import LLMProvider
+from . import LLMProvider, TokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +104,10 @@ class OpenAIProvider(LLMProvider):
 
                 # Handle response.created — emit message_start with real ID/model
                 if event_type == "response.created":
+                    resp_usage = getattr(event.response, "usage", None)
+                    input_tokens = (
+                        getattr(resp_usage, "input_tokens", 0) if resp_usage else 0
+                    )
                     yield RawMessageStartEvent(
                         type="message_start",
                         message=Message(
@@ -109,7 +116,7 @@ class OpenAIProvider(LLMProvider):
                             role="assistant",
                             content=[],
                             model=event.response.model,
-                            usage=Usage(input_tokens=0, output_tokens=0),
+                            usage=Usage(input_tokens=input_tokens, output_tokens=0),
                         ),
                     )
                     continue
@@ -181,8 +188,28 @@ class OpenAIProvider(LLMProvider):
                             index=tool_call_indices[item.id],
                         )
 
-                # Handle completion
+                # Handle completion — extract usage
                 elif event_type == "response.completed":
+                    resp_usage = getattr(event.response, "usage", None)
+                    if resp_usage:
+                        input_tokens = getattr(resp_usage, "input_tokens", 0) or 0
+                        output_tokens = getattr(resp_usage, "output_tokens", 0) or 0
+                        details = getattr(resp_usage, "input_tokens_details", None)
+                        cached_tokens = (
+                            (getattr(details, "cached_tokens", 0) or 0)
+                            if details
+                            else 0
+                        )
+                        yield RawMessageDeltaEvent(
+                            type="message_delta",
+                            delta=Delta(stop_reason="end_turn"),
+                            usage=MessageDeltaUsage(output_tokens=output_tokens),
+                        )
+                        self.last_usage = TokenUsage(
+                            input_tokens=input_tokens,
+                            output_tokens=output_tokens,
+                            cache_read_tokens=cached_tokens,
+                        )
                     break
 
             yield RawMessageStopEvent(type="message_stop")
@@ -290,6 +317,18 @@ class OpenAIProvider(LLMProvider):
                 "stream": False,
             }
             response = await self.client.responses.create(**params)
+
+            resp_usage = getattr(response, "usage", None)
+            if resp_usage:
+                details = getattr(resp_usage, "input_tokens_details", None)
+                cached_tokens = (
+                    (getattr(details, "cached_tokens", 0) or 0) if details else 0
+                )
+                self.last_usage = TokenUsage(
+                    input_tokens=getattr(resp_usage, "input_tokens", 0) or 0,
+                    output_tokens=getattr(resp_usage, "output_tokens", 0) or 0,
+                    cache_read_tokens=cached_tokens,
+                )
 
             content = response.output_text
             if not content:

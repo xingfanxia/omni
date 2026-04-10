@@ -15,6 +15,7 @@ from .model_providers import (
     ModelsRepository,
 )
 from .models import ModelRecord, Source
+from .usage import UsageRepository, UsageSummary
 
 __all__ = [
     "get_db_pool",
@@ -44,4 +45,6 @@ __all__ = [
     "ModelsRepository",
     "ModelRecord",
     "Source",
+    "UsageRepository",
+    "UsageSummary",
 ]
