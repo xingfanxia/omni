@@ -2,6 +2,33 @@ import { env } from '$env/dynamic/private'
 import { json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
 
+/** Mirrors shared/src/models.rs::AttributeFilter (untagged enum). */
+type AttributeFilter = string | string[] | { gte?: string; lte?: string }
+
+interface AgentSearchRequest {
+    query?: string
+    source_types?: string[]
+    content_types?: string[]
+    attribute_filters?: Record<string, AttributeFilter>
+    limit?: number
+    offset?: number
+    mode?: string
+    include_facets?: boolean
+}
+
+interface SearcherQuery {
+    query: string
+    source_types?: string[]
+    content_types?: string[]
+    attribute_filters?: Record<string, AttributeFilter>
+    limit: number
+    offset: number
+    mode: string
+    include_facets?: boolean
+    user_email?: string
+    user_id?: string
+}
+
 export const POST: RequestHandler = async ({ request, fetch, locals }) => {
     if (!locals.user) {
         return json({ error: 'Unauthorized' }, { status: 401 })
@@ -9,7 +36,7 @@ export const POST: RequestHandler = async ({ request, fetch, locals }) => {
 
     const logger = locals.logger.child('v1-search')
 
-    let body: Record<string, unknown>
+    let body: AgentSearchRequest
     try {
         body = await request.json()
     } catch {
@@ -17,16 +44,7 @@ export const POST: RequestHandler = async ({ request, fetch, locals }) => {
     }
 
     const query = typeof body.query === 'string' ? body.query.trim() : ''
-
-    // Attribute filters: structured filters on indexed document attributes
-    // (e.g. {"chat_title": "Solv & ComputeLabs"}, {"sender": ["alice","bob"]},
-    // {"date": {"gte": "2024-01-01"}}). Forwarded as-is to the searcher which
-    // uses its AttributeFilter enum (untagged: exact / any-of / range).
-    // See shared/src/models.rs::AttributeFilter.
-    const attributeFilters =
-        body.attribute_filters && typeof body.attribute_filters === 'object'
-            ? (body.attribute_filters as Record<string, unknown>)
-            : undefined
+    const attributeFilters = body.attribute_filters
 
     // Empty query is allowed ONLY when there's some other filter driving the
     // search — otherwise an empty `filter_only_search` against 150K docs is
@@ -43,7 +61,7 @@ export const POST: RequestHandler = async ({ request, fetch, locals }) => {
     const hasNonEmptyInput = rawQuery.trim().length > 0
     const hasNarrowingFilter =
         !!attributeFilters ||
-        (Array.isArray(body.source_types) && body.source_types.length > 0)
+        (body.source_types && body.source_types.length > 0)
     if (!hasNonEmptyInput && !hasNarrowingFilter) {
         return json(
             {
@@ -56,9 +74,7 @@ export const POST: RequestHandler = async ({ request, fetch, locals }) => {
 
     // Enforce API key source scoping
     const allowedSources = locals.apiKeyAllowedSources
-    let sourceTypes: string[] | undefined = Array.isArray(body.source_types)
-        ? body.source_types
-        : undefined
+    let sourceTypes = body.source_types
 
     if (allowedSources) {
         if (sourceTypes) {
@@ -73,17 +89,17 @@ export const POST: RequestHandler = async ({ request, fetch, locals }) => {
         }
     }
 
-    const queryData: Record<string, unknown> = {
+    const queryData: SearcherQuery = {
         query,
         source_types: sourceTypes,
-        content_types: Array.isArray(body.content_types) ? body.content_types : undefined,
+        content_types: body.content_types,
         attribute_filters: attributeFilters,
         limit: typeof body.limit === 'number' ? Math.min(body.limit, 100) : 20,
         offset: typeof body.offset === 'number' ? body.offset : 0,
         mode: ['fulltext', 'semantic', 'hybrid'].includes(body.mode as string)
-            ? body.mode
+            ? (body.mode as string)
             : 'hybrid',
-        include_facets: typeof body.include_facets === 'boolean' ? body.include_facets : undefined,
+        include_facets: body.include_facets,
         // 'admin' scope: omit user_email → searcher skips permission filter → all docs
         // 'user'/'public' scope (or cookie auth): real user identity → user's permitted docs
         user_email:
