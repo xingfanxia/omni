@@ -140,9 +140,9 @@ impl SyncState {
         use redis::AsyncCommands;
         let mut conn = self.redis_client.get_multiplexed_async_connection().await?;
         let key = self.get_urls_set_key(source_id);
-        let url_hash = format!("{:x}", md5::compute(url));
+        let document_id = WebPage::url_to_document_id(url);
 
-        let _: () = conn.sadd(&key, url_hash).await?;
+        let _: () = conn.sadd(&key, document_id).await?;
         let _: () = conn.expire(&key, 90 * 24 * 60 * 60).await?;
         Ok(())
     }
@@ -402,7 +402,7 @@ impl SyncManager {
         sdk_client: &SdkClient,
     ) -> Result<()> {
         let url = &web_page.url;
-        let url_hash = format!("{:x}", md5::compute(url));
+        let url_hash = WebPage::url_to_document_id(url);
 
         {
             let mut urls = current_urls.lock().await;

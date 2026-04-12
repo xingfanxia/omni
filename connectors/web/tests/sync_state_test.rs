@@ -108,12 +108,13 @@ async fn test_url_set_operations() -> Result<()> {
     let synced_urls = sync_state.get_all_synced_urls(source_id).await?;
     assert_eq!(synced_urls.len(), 3);
 
-    // Compute expected hashes
-    let expected_hashes: HashSet<String> = urls
+    // Compute expected document IDs (base64 of URL, same as url_to_document_id)
+    use base64::Engine;
+    let expected_ids: HashSet<String> = urls
         .iter()
-        .map(|url| format!("{:x}", md5::compute(url)))
+        .map(|url| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(url))
         .collect();
-    assert_eq!(synced_urls, expected_hashes);
+    assert_eq!(synced_urls, expected_ids);
 
     Ok(())
 }
@@ -135,16 +136,16 @@ async fn test_remove_url_from_set() -> Result<()> {
     let urls = sync_state.get_all_synced_urls(source_id).await?;
     assert_eq!(urls.len(), 2);
 
-    // Remove one URL (by hash)
-    let url2_hash = format!("{:x}", md5::compute(url2));
-    sync_state
-        .remove_url_from_set(source_id, &url2_hash)
-        .await?;
+    // Remove one URL (by document_id — base64 of URL)
+    use base64::Engine;
+    let url2_id = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(url2);
+    sync_state.remove_url_from_set(source_id, &url2_id).await?;
 
     // Verify only one remains
     let urls = sync_state.get_all_synced_urls(source_id).await?;
     assert_eq!(urls.len(), 1);
-    assert!(urls.contains(&format!("{:x}", md5::compute(url1))));
+    let url1_id = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(url1);
+    assert!(urls.contains(&url1_id));
 
     Ok(())
 }

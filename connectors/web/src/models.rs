@@ -114,6 +114,7 @@ impl WebPage {
 
     /// Create a WebPage from raw HTML content
     pub fn from_html(url: String, html: &str) -> Result<Self> {
+        let url = Self::normalize_url(&url);
         let document = Html::parse_document(html);
         let text_content = Self::extract_text_content(&document)?;
         let content_hash = Self::compute_content_hash(&text_content);
@@ -201,7 +202,31 @@ impl WebPage {
         format!("{:x}", hasher.finalize())
     }
 
-    fn url_to_document_id(url: &str) -> String {
+    pub fn normalize_url(url: &str) -> String {
+        let Ok(mut parsed) = url::Url::parse(url) else {
+            return url.to_string();
+        };
+        // Strip fragment — #anchors are client-side only, not part of the resource identity
+        parsed.set_fragment(None);
+        // Drop utm_* tracking params; keep everything else
+        let filtered: Vec<(String, String)> = parsed
+            .query_pairs()
+            .filter(|(k, _)| !k.starts_with("utm_"))
+            .map(|(k, v)| (k.into_owned(), v.into_owned()))
+            .collect();
+        if filtered.is_empty() {
+            parsed.set_query(None);
+        } else {
+            parsed
+                .query_pairs_mut()
+                .clear()
+                .extend_pairs(filtered.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+        }
+        // scheme+host are already lowercased by the url crate during parsing
+        parsed.to_string()
+    }
+
+    pub fn url_to_document_id(url: &str) -> String {
         use base64::Engine;
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(url)
     }
@@ -387,6 +412,44 @@ mod tests {
 
         assert_eq!(hash1, hash2);
         assert_ne!(hash1, hash3);
+    }
+
+    #[test]
+    fn test_normalize_url() {
+        // Strips fragment
+        assert_eq!(
+            WebPage::normalize_url("https://example.com/page#section"),
+            "https://example.com/page"
+        );
+        // Drops utm_* params, preserves others
+        assert_eq!(
+            WebPage::normalize_url(
+                "https://example.com/page?ref=home&utm_source=google&utm_medium=cpc"
+            ),
+            "https://example.com/page?ref=home"
+        );
+        // Drops all query params when only utm_* remain
+        assert_eq!(
+            WebPage::normalize_url("https://example.com/page?utm_campaign=spring"),
+            "https://example.com/page"
+        );
+        // Lowercases scheme+host (url crate does this automatically)
+        assert_eq!(
+            WebPage::normalize_url("HTTPS://Example.COM/Path"),
+            "https://example.com/Path"
+        );
+        // Fragment + utm together
+        assert_eq!(
+            WebPage::normalize_url("https://example.com/page?utm_source=x#anchor"),
+            "https://example.com/page"
+        );
+        // Unchanged when already clean
+        assert_eq!(
+            WebPage::normalize_url("https://example.com/docs/intro"),
+            "https://example.com/docs/intro"
+        );
+        // Invalid URL passes through unchanged
+        assert_eq!(WebPage::normalize_url("not-a-url"), "not-a-url");
     }
 
     #[test]
