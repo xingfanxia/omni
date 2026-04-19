@@ -380,9 +380,15 @@ impl QueueProcessor {
     }
 
     async fn process_batch(&self) -> Result<()> {
+        // Cap iterations per invocation so a full queue cannot hold this future
+        // for arbitrarily long, which would starve every other branch of the
+        // main select! loop (GC, retry, stale-recovery, heartbeat). Subsequent
+        // calls are driven by check_interval and poll_interval in the main loop.
+        const MAX_BATCHES_PER_CALL: usize = 3;
+
         let mut total_processed = 0;
 
-        loop {
+        for _ in 0..MAX_BATCHES_PER_CALL {
             let events = self.event_queue.dequeue_batch(self.batch_size).await?;
 
             if events.is_empty() {
@@ -518,6 +524,14 @@ impl QueueProcessor {
                 }
             }
         }
+
+        if total_processed > 0 {
+            info!(
+                "Processed {} events this call (cap reached, continuing next tick)",
+                total_processed
+            );
+        }
+        Ok(())
     }
 
     async fn group_events_by_type(
