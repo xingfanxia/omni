@@ -209,6 +209,7 @@ pub enum SourceType {
     Salesforce,
     Snowflake,
     Zendesk,
+    Telegram,
 }
 
 impl SourceType {
@@ -243,6 +244,7 @@ impl SourceType {
             SourceType::Salesforce => "salesforce",
             SourceType::Snowflake => "snowflake",
             SourceType::Zendesk => "zendesk",
+            SourceType::Telegram => "telegram",
         }
     }
 }
@@ -295,6 +297,7 @@ impl TryFrom<&str> for SourceType {
             "salesforce" => Ok(SourceType::Salesforce),
             "snowflake" => Ok(SourceType::Snowflake),
             "zendesk" => Ok(SourceType::Zendesk),
+            "telegram" => Ok(SourceType::Telegram),
             other => Err(format!("unknown source type: {other}")),
         }
     }
@@ -344,6 +347,7 @@ pub enum ServiceProvider {
     Salesforce,
     Snowflake,
     Zendesk,
+    Telegram,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, sqlx::Type, PartialEq)]

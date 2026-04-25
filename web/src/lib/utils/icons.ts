@@ -32,6 +32,7 @@ import nextcloudIcon from '$lib/images/icons/nextcloud.svg'
 import paperlessIcon from '$lib/images/icons/paperless.svg'
 import imapIcon from '$lib/images/icons/imap.svg'
 import windshiftIcon from '$lib/images/icons/windshift.png'
+import telegramIcon from '$lib/images/icons/telegram.svg'
 
 // Google Workspace MIME types
 const GOOGLE_DOCS_MIMETYPES = [
@@ -82,6 +83,7 @@ const SOURCE_TYPE_ICONS: Record<string, string> = {
     [SourceType.GOOGLE_ADS]: googleAdsIcon,
     [SourceType.DARWINBOX]: darwinboxIcon,
     [SourceType.WINDSHIFT]: windshiftIcon,
+    [SourceType.TELEGRAM]: telegramIcon,
 }
 
 // Get icon based on source type and content type.
@@ -189,6 +191,8 @@ export function inferSourceFromUrl(url: string): SourceType | null {
         urlLower.includes('nextcloud')
     )
         return SourceType.NEXTCLOUD
+    if (urlLower.includes('t.me') || urlLower.includes('telegram.org'))
+        return SourceType.TELEGRAM
 
     return null
 }
@@ -253,6 +257,7 @@ export function getSourceDisplayName(sourceType: SourceType) {
         [SourceType.WINDSHIFT]: 'Windshift',
         [SourceType.SNOWFLAKE]: 'Snowflake',
         [SourceType.ZENDESK]: 'Zendesk',
+        [SourceType.TELEGRAM]: 'Telegram',
     }
 
     return sourceDisplayNames[sourceType]
