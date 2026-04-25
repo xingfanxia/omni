@@ -36,6 +36,7 @@ export enum SourceType {
     SALESFORCE = 'salesforce',
     SNOWFLAKE = 'snowflake',
     ZENDESK = 'zendesk',
+    TELEGRAM = 'telegram',
 }
 
 export enum ServiceProvider {
@@ -59,6 +60,7 @@ export enum ServiceProvider {
     SALESFORCE = 'salesforce',
     SNOWFLAKE = 'snowflake',
     ZENDESK = 'zendesk',
+    TELEGRAM = 'telegram',
 }
 
 export enum AuthType {
@@ -246,6 +248,7 @@ export const DEFAULT_SYNC_INTERVAL_SECONDS: Record<SourceType, number> = {
     [SourceType.SALESFORCE]: 3600,
     [SourceType.SNOWFLAKE]: 21600,
     [SourceType.ZENDESK]: 1800,
+    [SourceType.TELEGRAM]: 1800,
 }
 
 export const EMBEDDING_PROVIDER_TYPES = ['local', 'jina', 'openai', 'cohere', 'bedrock'] as const
