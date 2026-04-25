@@ -25,6 +25,7 @@
     import nextcloudLogo from '$lib/images/icons/nextcloud.svg'
     import paperlessLogo from '$lib/images/icons/paperless.svg'
     import imapLogo from '$lib/images/icons/imap.svg'
+    import telegramLogo from '$lib/images/icons/telegram.svg'
     import { copyTextToClipboard } from '$lib/utils'
     import { getSourceIconPath } from '$lib/utils/icons'
     import {
@@ -53,6 +54,7 @@
     import GithubConnectorSetup from '$lib/components/github-connector-setup.svelte'
     import PaperlessConnectorSetup from '$lib/components/paperless-connector-setup.svelte'
     import NextcloudConnectorSetup from '$lib/components/nextcloud-connector-setup.svelte'
+    import TelegramConnectorSetup from '$lib/components/telegram-connector-setup.svelte'
     import OAuthClientConfigDialog from '$lib/components/oauth-integrations/oauth-client-config-dialog.svelte'
     import { Badge } from '$lib/components/ui/badge'
     import { SourceType } from '$lib/types'
@@ -185,6 +187,7 @@
         nextcloud: nextcloudLogo,
         paperless_ngx: paperlessLogo,
         imap: imapLogo,
+        telegram: telegramLogo,
     }
 
     const oauthProviderIcons: Record<string, string> = {
@@ -648,6 +651,11 @@
 
 <NextcloudConnectorSetup
     open={activeSetup === 'nextcloud'}
+    onSuccess={handleSetupSuccess}
+    onCancel={closeSetup} />
+
+<TelegramConnectorSetup
+    open={activeSetup === 'telegram'}
     onSuccess={handleSetupSuccess}
     onCancel={closeSetup} />
 
