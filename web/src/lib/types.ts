@@ -23,6 +23,7 @@ export enum SourceType {
     NEXTCLOUD = 'nextcloud',
     GOOGLE_ADS = 'google_ads',
     DARWINBOX = 'darwinbox',
+    TELEGRAM = 'telegram',
 }
 
 export enum ServiceProvider {
@@ -41,6 +42,7 @@ export enum ServiceProvider {
     NEXTCLOUD = 'nextcloud',
     GOOGLE_ADS = 'google_ads',
     DARWINBOX = 'darwinbox',
+    TELEGRAM = 'telegram',
 }
 
 export enum AuthType {
@@ -201,6 +203,7 @@ export const DEFAULT_SYNC_INTERVAL_SECONDS: Record<SourceType, number> = {
     [SourceType.NEXTCLOUD]: 3600,
     [SourceType.GOOGLE_ADS]: 3600,
     [SourceType.DARWINBOX]: 3600,
+    [SourceType.TELEGRAM]: 1800,
 }
 
 export const EMBEDDING_PROVIDER_TYPES = ['local', 'jina', 'openai', 'cohere', 'bedrock'] as const

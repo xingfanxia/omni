@@ -37,6 +37,8 @@ const CONNECTOR_DISPLAY_ORDER: string[] = [
     'fireflies',
     // HRIS
     'darwinbox',
+    // Communication (cont.)
+    'telegram',
     // Other
     'nextcloud',
     'web',
