@@ -50,10 +50,18 @@ BEGIN
         mutable_segment_rows = 5000
     );
 
-    -- Rebuild surviving indexes for new tokenizer internals
-    REINDEX INDEX people_search_idx;
-    REINDEX INDEX chat_message_content_search_idx;
-    REINDEX INDEX chat_title_search_idx;
+    -- Rebuild surviving indexes for new tokenizer internals.
+    -- Some restored production databases may not have every historical BM25
+    -- index, so only reindex those that are present.
+    IF to_regclass('people_search_idx') IS NOT NULL THEN
+        REINDEX INDEX people_search_idx;
+    END IF;
+    IF to_regclass('chat_message_content_search_idx') IS NOT NULL THEN
+        REINDEX INDEX chat_message_content_search_idx;
+    END IF;
+    IF to_regclass('chat_title_search_idx') IS NOT NULL THEN
+        REINDEX INDEX chat_title_search_idx;
+    END IF;
 
     RAISE NOTICE 'pg_search upgraded to 0.23.1 — all BM25 indexes rebuilt';
 
