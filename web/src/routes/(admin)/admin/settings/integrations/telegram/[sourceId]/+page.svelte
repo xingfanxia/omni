@@ -109,8 +109,9 @@
             chatsLoaded = true
         } catch (error: any) {
             console.error('Error loading chats:', error)
-            chatLoadError = error.message || 'Failed to load chats'
-            toast.error(chatLoadError)
+            const message = error.message || 'Failed to load chats'
+            chatLoadError = message
+            toast.error(message)
         } finally {
             isLoadingChats = false
         }
