@@ -17,7 +17,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /wheels /wheels
-RUN pip install --no-cache-dir /wheels/*.whl && rm -rf /wheels
+RUN pip install --no-cache-dir "mcp>=1.0" /wheels/*.whl && rm -rf /wheels
 
 COPY connectors/telegram/main.py /app/
 
