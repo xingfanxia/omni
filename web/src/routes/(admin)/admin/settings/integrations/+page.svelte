@@ -739,6 +739,9 @@
 
 <DarwinboxConnectorSetup
     open={activeSetup === 'darwinbox'}
+    onSuccess={handleSetupSuccess}
+    onCancel={closeSetup} />
+
 <TelegramConnectorSetup
     open={activeSetup === 'telegram'}
     onSuccess={handleSetupSuccess}
