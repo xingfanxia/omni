@@ -25,7 +25,8 @@ CHECK (source_type IN (
   'ms_teams',
   'paperless_ngx',
   'nextcloud',
-  'google_ads'
+  'google_ads',
+  'telegram'
 ));
 
 ALTER TABLE service_credentials DROP CONSTRAINT IF EXISTS service_credentials_provider_check;
@@ -44,5 +45,6 @@ CHECK (provider IN (
   'linear',
   'paperless_ngx',
   'nextcloud',
-  'google_ads'
+  'google_ads',
+  'telegram'
 ));
