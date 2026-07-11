@@ -204,8 +204,8 @@ impl SearchDocumentRepository {
             WITH filtered_candidates AS MATERIALIZED (
                 SELECT d.id, d.source_id, pdb.score(d.id) as bm25_score
                 FROM documents d
-                JOIN sources s ON s.id = d.source_id AND NOT s.is_deleted
                 WHERE d.id @@@ pdb.parse($1, lenient => true){filter_where}
+                  AND d.source_id = ANY(ARRAY(SELECT id FROM sources WHERE NOT is_deleted))
                 ORDER BY bm25_score DESC
                 LIMIT ${candidate_limit_idx}
             ),
@@ -366,9 +366,9 @@ impl SearchDocumentRepository {
         }
 
         let filter_where = if filters.is_empty() {
-            String::new()
+            "WHERE d.source_id = ANY(ARRAY(SELECT id FROM sources WHERE NOT is_deleted))".to_string()
         } else {
-            format!("WHERE {}", filters.join(" AND "))
+            format!("WHERE d.source_id = ANY(ARRAY(SELECT id FROM sources WHERE NOT is_deleted)) AND {}", filters.join(" AND "))
         };
 
         let query_str = format!(
@@ -376,7 +376,6 @@ impl SearchDocumentRepository {
             WITH filtered_scope AS MATERIALIZED (
                 SELECT d.id, d.source_id
                 FROM documents d
-                JOIN sources s ON s.id = d.source_id AND NOT s.is_deleted
                 {filter_where}
             ),
             -- Dedupe by (source_type, external_id), not source_id. Connectors may emit
@@ -772,7 +771,7 @@ impl SearchDocumentRepository {
 
         let query_str = format!(
             r#"
-            WITH candidates AS (
+            WITH candidates AS MATERIALIZED (
                 SELECT id, pdb.score(id) as score
                 FROM documents
                 WHERE id @@@ pdb.parse($1, lenient => true){filter_where}
