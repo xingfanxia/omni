@@ -51,7 +51,7 @@ x-resources-connector: &resources-connector
 
 services:
   postgres:
-    image: paradedb/paradedb:0.24.0-pg17
+    image: paradedb/paradedb:0.24.2-pg17 # fork: 0.24.0 rejects searcher join shape (Unsupported query shape); 0.24.2 fixes alternate join shapes
     <<: *resources-critical
     cpus: ${OMNI_POSTGRES_CPUS:-1.0}
     mem_limit: ${OMNI_POSTGRES_MEMORY:-3g}
