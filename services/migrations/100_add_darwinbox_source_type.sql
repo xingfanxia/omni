@@ -26,7 +26,8 @@ CHECK (source_type IN (
   'paperless_ngx',
   'nextcloud',
   'google_ads',
-  'darwinbox'
+  'darwinbox',
+  'telegram'
 ));
 
 ALTER TABLE service_credentials DROP CONSTRAINT IF EXISTS service_credentials_provider_check;
@@ -46,5 +47,6 @@ CHECK (provider IN (
   'paperless_ngx',
   'nextcloud',
   'google_ads',
-  'darwinbox'
+  'darwinbox',
+  'telegram'
 ));

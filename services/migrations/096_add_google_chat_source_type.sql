@@ -24,5 +24,6 @@ CHECK (source_type IN (
   'linear',
   'ms_teams',
   'paperless_ngx',
-  'nextcloud'
+  'nextcloud',
+  'telegram'
 ));
