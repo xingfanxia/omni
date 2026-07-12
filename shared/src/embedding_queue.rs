@@ -107,6 +107,15 @@ impl EmbeddingQueue {
                 SELECT 1 FROM embedding_queue
                 WHERE document_id = $2 AND status IN ('pending', 'processing')
             )
+            -- Skip empty documents: with no embeddable text the embedder only
+            -- marks them failed ("Document has empty content"), polluting the
+            -- failure metric across every connector. Require a content_id that
+            -- points to a non-empty blob (a NULL content_id fails the join too).
+            AND EXISTS (
+                SELECT 1 FROM documents d
+                JOIN content_blobs cb ON cb.id = d.content_id
+                WHERE d.id = $2 AND cb.size_bytes > 0
+            )
             "#,
         )
         .bind(&id)
@@ -139,6 +148,12 @@ impl EmbeddingQueue {
                 WHERE NOT EXISTS (
                     SELECT 1 FROM embedding_queue
                     WHERE document_id = $2 AND status IN ('pending', 'processing')
+                )
+                -- Skip empty documents (see enqueue): non-empty content blob required.
+                AND EXISTS (
+                    SELECT 1 FROM documents d
+                    JOIN content_blobs cb ON cb.id = d.content_id
+                    WHERE d.id = $2 AND cb.size_bytes > 0
                 )
                 "#,
             )
@@ -197,6 +212,12 @@ impl EmbeddingQueue {
                 FROM embeddings e
                 WHERE e.document_id = input.document_id
                   AND e.model_name = provider.model_name
+            )
+            -- Skip empty documents (see enqueue): non-empty content blob required.
+            AND EXISTS (
+                SELECT 1 FROM documents d
+                JOIN content_blobs cb ON cb.id = d.content_id
+                WHERE d.id = input.document_id AND cb.size_bytes > 0
             )
             RETURNING id
             "#,
