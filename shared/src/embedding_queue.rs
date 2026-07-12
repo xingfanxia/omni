@@ -80,6 +80,30 @@ impl EmbeddingQueue {
             return Ok(Vec::new());
         }
 
+        // Skip empty documents: with no embeddable text the embedder only marks
+        // them failed ("Document has empty content"), polluting the failure
+        // metric across every connector. Require a content_id that points to a
+        // non-empty blob (a NULL content_id fails the join too). Both public
+        // enqueue paths reach the task queue through here.
+        let document_ids: Vec<String> = sqlx::query_scalar(
+            r#"
+            SELECT input.document_id
+            FROM UNNEST($1::text[]) WITH ORDINALITY AS input(document_id, ord)
+            WHERE EXISTS (
+                SELECT 1 FROM documents d
+                JOIN content_blobs cb ON cb.id = d.content_id
+                WHERE d.id = input.document_id AND cb.size_bytes > 0
+            )
+            ORDER BY input.ord
+            "#,
+        )
+        .bind(&document_ids)
+        .fetch_all(&self.pool)
+        .await?;
+        if document_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
         let tasks: Vec<EnqueueTaskRequest> = document_ids
             .into_iter()
             .map(|document_id| embedding_task(document_id))
