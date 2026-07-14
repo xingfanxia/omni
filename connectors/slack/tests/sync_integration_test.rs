@@ -32,7 +32,7 @@ async fn drive_sync(
     let creds = fixture.sdk_client.get_credentials(source_id).await.unwrap();
     let state: Option<SlackConnectorState> = fixture
         .sdk_client
-        .get_connector_state(source_id)
+        .get_checkpoint(source_id)
         .await
         .unwrap()
         .and_then(|v| serde_json::from_value(v).ok());
@@ -116,6 +116,7 @@ async fn test_full_sync_creates_events() {
         messages: make_test_messages(BASE_TS),
         users: make_test_users(),
         channel_members: make_test_channel_members(),
+        history_delay_ms: std::collections::HashMap::new(),
         thread_replies: std::collections::HashMap::new(),
     };
     let mock_server = MockSlackServer::start(mock_state).await;
@@ -254,6 +255,7 @@ async fn test_full_sync_ignores_saved_channel_timestamps() {
         messages: make_test_messages(BASE_TS),
         users: make_test_users(),
         channel_members: make_test_channel_members(),
+        history_delay_ms: std::collections::HashMap::new(),
         thread_replies: std::collections::HashMap::new(),
     };
     let mock_server = MockSlackServer::start(mock_state).await;
@@ -282,6 +284,7 @@ async fn test_full_sync_ignores_saved_channel_timestamps() {
         messages,
         users: make_test_users(),
         channel_members: make_test_channel_members(),
+        history_delay_ms: std::collections::HashMap::new(),
         thread_replies: std::collections::HashMap::new(),
     };
     let mock_server2 = MockSlackServer::start(mock_state2).await;
@@ -319,6 +322,195 @@ async fn test_full_sync_ignores_saved_channel_timestamps() {
 }
 
 #[tokio::test]
+async fn test_resumed_full_sync_uses_only_current_run_channel_checkpoints() {
+    let fixture = SlackConnectorTestFixture::new().await.unwrap();
+
+    let initial_state = MockSlackState {
+        channels: make_test_channels(),
+        messages: make_test_messages(BASE_TS),
+        users: make_test_users(),
+        channel_members: make_test_channel_members(),
+        history_delay_ms: std::collections::HashMap::new(),
+        thread_replies: std::collections::HashMap::new(),
+    };
+    let initial_server = MockSlackServer::start(initial_state).await;
+
+    let (_user_id, source_id, _first_sync_run_id) =
+        setup_full_sync(&fixture, &initial_server.base_url).await;
+
+    let older_ts = BASE_TS - 86400;
+    let mut messages = make_test_messages(BASE_TS);
+    messages.get_mut("C001").unwrap().push(SlackMessage {
+        msg_type: "message".to_string(),
+        text: "A previous-day C001 message".to_string(),
+        user: "U001".to_string(),
+        ts: format!("{}.000100", older_ts),
+        thread_ts: None,
+        reply_count: None,
+        attachments: None,
+        files: None,
+    });
+    messages.get_mut("C002").unwrap().push(SlackMessage {
+        msg_type: "message".to_string(),
+        text: "A previous-day C002 message".to_string(),
+        user: "U001".to_string(),
+        ts: format!("{}.000100", older_ts),
+        thread_ts: None,
+        reply_count: None,
+        attachments: None,
+        files: None,
+    });
+
+    let mut history_delay_ms = std::collections::HashMap::new();
+    history_delay_ms.insert("C002".to_string(), 60_000);
+    let partial_state = MockSlackState {
+        channels: make_test_channels(),
+        messages: messages.clone(),
+        users: make_test_users(),
+        channel_members: make_test_channel_members(),
+        history_delay_ms,
+        thread_replies: std::collections::HashMap::new(),
+    };
+    let partial_server = MockSlackServer::start(partial_state).await;
+
+    let partial_sync_run_id = fixture.create_sync_run(&source_id).await.unwrap();
+    let source = fixture.sdk_client.get_source(&source_id).await.unwrap();
+    let creds = fixture
+        .sdk_client
+        .get_credentials(&source_id)
+        .await
+        .unwrap();
+    let prior_source_state: SlackConnectorState = serde_json::from_value(
+        fixture
+            .sdk_client
+            .get_checkpoint(&source_id)
+            .await
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        prior_source_state.channel_timestamps.contains_key("C002"),
+        "the prior successful source checkpoint must contain C002"
+    );
+
+    fixture
+        .sdk_client
+        .register_sync(&partial_sync_run_id, SyncType::Full)
+        .await;
+    let partial_ctx = SyncContext::new_with_resume(
+        fixture.sdk_client.clone(),
+        partial_sync_run_id.clone(),
+        source_id.clone(),
+        SourceType::Slack,
+        SyncType::Full,
+        false,
+        Arc::new(AtomicBool::new(false)),
+    );
+    let partial_sync_manager = SyncManager::with_slack_base_url(
+        fixture.sdk_client.clone(),
+        partial_server.base_url.clone(),
+    );
+    let partial_handle = tokio::spawn(async move {
+        partial_sync_manager
+            .run_sync(source, creds, Some(prior_source_state), partial_ctx)
+            .await
+    });
+
+    let current_run_state = tokio::time::timeout(tokio::time::Duration::from_secs(30), async {
+        loop {
+            let checkpoint: Option<serde_json::Value> =
+                sqlx::query_scalar("SELECT checkpoint FROM sync_runs WHERE id = $1")
+                    .bind(&partial_sync_run_id)
+                    .fetch_one(fixture.pool())
+                    .await
+                    .unwrap();
+            if let Some(checkpoint) = checkpoint {
+                let state: SlackConnectorState = serde_json::from_value(checkpoint).unwrap();
+                if state.channel_timestamps.contains_key("C001") {
+                    break state;
+                }
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("C001 should checkpoint before the delayed C002 request");
+    assert!(
+        !partial_handle.is_finished(),
+        "the first attempt must still be blocked before C002 completes"
+    );
+    partial_handle.abort();
+    let _ = partial_handle.await;
+
+    let resume_state = MockSlackState {
+        channels: make_test_channels(),
+        messages,
+        users: make_test_users(),
+        channel_members: make_test_channel_members(),
+        history_delay_ms: std::collections::HashMap::new(),
+        thread_replies: std::collections::HashMap::new(),
+    };
+    let resume_server = MockSlackServer::start(resume_state).await;
+
+    let source = fixture.sdk_client.get_source(&source_id).await.unwrap();
+    let creds = fixture
+        .sdk_client
+        .get_credentials(&source_id)
+        .await
+        .unwrap();
+    fixture
+        .sdk_client
+        .register_sync(&partial_sync_run_id, SyncType::Full)
+        .await;
+    let resume_ctx = SyncContext::new_with_resume(
+        fixture.sdk_client.clone(),
+        partial_sync_run_id.clone(),
+        source_id.clone(),
+        SourceType::Slack,
+        SyncType::Full,
+        true,
+        Arc::new(AtomicBool::new(false)),
+    );
+    let resume_sync_manager = SyncManager::with_slack_base_url(
+        fixture.sdk_client.clone(),
+        resume_server.base_url.clone(),
+    );
+    resume_sync_manager
+        .run_sync(source, creds, Some(current_run_state), resume_ctx)
+        .await
+        .unwrap();
+
+    let events_after = fixture.get_queued_events(&source_id).await.unwrap();
+    let previous_day_titles: Vec<_> = events_after
+        .iter()
+        .filter(|e| e.get("type").and_then(|v| v.as_str()) == Some("document_created"))
+        .filter_map(|e| {
+            e.get("metadata")
+                .and_then(|m| m.get("title"))
+                .and_then(|v| v.as_str())
+                .filter(|title| title.contains("2025-01-14"))
+        })
+        .collect();
+    assert_eq!(
+        previous_day_titles
+            .iter()
+            .filter(|title| title.contains("general"))
+            .count(),
+        1,
+        "C001 was completed before the crash and must not full-scan again"
+    );
+    assert_eq!(
+        previous_day_titles
+            .iter()
+            .filter(|title| title.contains("engineering"))
+            .count(),
+        1,
+        "C002 was untouched before the crash and must full-scan on resume"
+    );
+}
+
+#[tokio::test]
 async fn test_sync_persists_state_for_incremental() {
     let fixture = SlackConnectorTestFixture::new().await.unwrap();
 
@@ -327,6 +519,7 @@ async fn test_sync_persists_state_for_incremental() {
         messages: make_test_messages(BASE_TS),
         users: make_test_users(),
         channel_members: make_test_channel_members(),
+        history_delay_ms: std::collections::HashMap::new(),
         thread_replies: std::collections::HashMap::new(),
     };
     let mock_server = MockSlackServer::start(mock_state).await;
@@ -381,6 +574,7 @@ async fn test_sync_persists_state_for_incremental() {
         messages: later_messages,
         users: make_test_users(),
         channel_members: make_test_channel_members(),
+        history_delay_ms: std::collections::HashMap::new(),
         thread_replies: std::collections::HashMap::new(),
     };
     let mock_server2 = MockSlackServer::start(mock_state2).await;
@@ -469,6 +663,7 @@ async fn test_realtime_event_syncs_single_channel() {
         messages: make_test_messages(BASE_TS),
         users: make_test_users(),
         channel_members: make_test_channel_members(),
+        history_delay_ms: std::collections::HashMap::new(),
         thread_replies: std::collections::HashMap::new(),
     };
     let mock_server = MockSlackServer::start(mock_state).await;
@@ -514,6 +709,7 @@ async fn test_realtime_event_syncs_single_channel() {
         messages: later_messages,
         users: make_test_users(),
         channel_members: make_test_channel_members(),
+        history_delay_ms: std::collections::HashMap::new(),
         thread_replies: std::collections::HashMap::new(),
     };
     let mock_server2 = MockSlackServer::start(mock_state2).await;
@@ -644,6 +840,7 @@ async fn test_sync_fetches_thread_replies() {
         messages,
         users: make_test_users(),
         channel_members: make_test_channel_members(),
+        history_delay_ms: std::collections::HashMap::new(),
         thread_replies,
     };
     let mock_server = MockSlackServer::start(mock_state).await;
