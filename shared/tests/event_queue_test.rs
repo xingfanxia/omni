@@ -534,7 +534,7 @@ mod tests {
         let event = make_event_with_content("missing-run", "sized-doc", content_id);
         queue.enqueue(TEST_SOURCE_ID, &event).await.unwrap();
 
-        let summary = queue.get_queue_summary().await.unwrap();
+        let summary = queue.get_pending_summary().await.unwrap();
         let pending_orphan = summary
             .entries
             .iter()
@@ -542,6 +542,76 @@ mod tests {
             .unwrap();
         assert_eq!(pending_orphan.count, 1);
         assert_eq!(pending_orphan.size_bytes, 42);
+    }
+
+    #[tokio::test]
+    async fn test_queue_summary_excludes_terminal_history() {
+        let env = TestEnvironment::new().await.unwrap();
+        let pool = env.db_pool.pool().clone();
+        let queue = EventQueue::new(pool.clone());
+
+        let pending_content = insert_sized_content(&pool, 42).await;
+        let pending = make_event_with_content("missing-run", "pending-doc", pending_content);
+        queue.enqueue(TEST_SOURCE_ID, &pending).await.unwrap();
+
+        let failed_content = insert_sized_content(&pool, 1).await;
+        let failed = make_event_with_content("missing-run", "failed-doc", failed_content);
+        let failed_id = queue.enqueue(TEST_SOURCE_ID, &failed).await.unwrap();
+        queue
+            .mark_failed(&failed_id, "expected test failure")
+            .await
+            .unwrap();
+
+        let completed_content = insert_sized_content(&pool, 1).await;
+        let completed = make_event_with_content("missing-run", "completed-doc", completed_content);
+        let completed_id = queue.enqueue(TEST_SOURCE_ID, &completed).await.unwrap();
+        queue.mark_completed(&completed_id).await.unwrap();
+
+        let summary = queue.get_pending_summary().await.unwrap();
+        assert_eq!(summary.entries.len(), 1);
+        let only_entry = &summary.entries[0];
+        assert_eq!(only_entry.status, EventStatus::Pending);
+        assert_eq!(only_entry.count, 1);
+        assert_eq!(only_entry.size_bytes, 42);
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_old_events_removes_only_expired_failed_history() {
+        let env = TestEnvironment::new().await.unwrap();
+        let pool = env.db_pool.pool().clone();
+        let queue = EventQueue::new(pool.clone());
+
+        let old_failed = make_event("missing-run", "old-failed-doc");
+        let old_failed_id = queue.enqueue(TEST_SOURCE_ID, &old_failed).await.unwrap();
+        queue
+            .mark_failed(&old_failed_id, "expected old test failure")
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE connector_events_queue SET created_at = NOW() - INTERVAL '8 days' WHERE id = $1",
+        )
+        .bind(&old_failed_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let recent_failed = make_event("missing-run", "recent-failed-doc");
+        let recent_failed_id = queue.enqueue(TEST_SOURCE_ID, &recent_failed).await.unwrap();
+        queue
+            .mark_failed(&recent_failed_id, "expected recent test failure")
+            .await
+            .unwrap();
+
+        let result = queue.cleanup_old_events(7).await.unwrap();
+        assert_eq!(result.failed_deleted, 1);
+
+        let remaining_failed: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM connector_events_queue WHERE status = 'failed'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(remaining_failed, 1);
     }
 
     /// Companion: `dequeue_batch_by_sync_type` must continue to work for

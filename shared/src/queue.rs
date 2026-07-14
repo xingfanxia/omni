@@ -5,6 +5,7 @@ use sqlx::{PgPool, Row};
 use crate::models::{ConnectorEvent, ConnectorEventQueueItem, EventStatus, SyncType};
 
 const CONTENT_ID_LENGTH: i32 = 26;
+const FAILED_CLEANUP_BATCH: i64 = 100_000;
 
 fn event_type_str(event: &ConnectorEvent) -> &'static str {
     match event {
@@ -458,7 +459,9 @@ impl EventQueue {
         })
     }
 
-    pub async fn get_queue_summary(&self) -> Result<QueueSummary> {
+    /// Return the pending-only summary used by the indexer batching policy.
+    /// Terminal history belongs to get_queue_stats/cleanup, not the hot path.
+    pub async fn get_pending_summary(&self) -> Result<QueueSummary> {
         let rows = sqlx::query(
             r#"
             SELECT
@@ -473,6 +476,7 @@ impl EventQueue {
                 WHEN length(q.payload->>'content_id') = $1 THEN (q.payload->>'content_id')::char(26)
                 ELSE NULL
             END
+            WHERE q.status = 'pending'
             GROUP BY s.sync_type, q.status
             "#,
         )
@@ -552,6 +556,29 @@ impl EventQueue {
         .execute(&mut *tx)
         .await?;
 
+        // Failed events older than the retention period are no longer
+        // retryable: retry_failed_events only considers the last 24 hours.
+        // Keeping them forever makes the scheduling summary scan terminal
+        // history and caused multi-million-row production backlogs.
+        let failed_result = sqlx::query(
+            r#"
+            WITH expired AS (
+                SELECT id
+                FROM connector_events_queue
+                WHERE status = 'failed'
+                  AND created_at < NOW() - INTERVAL '1 day' * $1
+                LIMIT $2
+            )
+            DELETE FROM connector_events_queue q
+            USING expired
+            WHERE q.id = expired.id
+            "#,
+        )
+        .bind(retention_days)
+        .bind(FAILED_CLEANUP_BATCH)
+        .execute(&mut *tx)
+        .await?;
+
         // Run VACUUM to reclaim space (this will run after the transaction commits)
         tx.commit().await?;
 
@@ -563,6 +590,7 @@ impl EventQueue {
         Ok(CleanupResult {
             completed_deleted: completed_result.rows_affected(),
             dead_letter_deleted: dead_letter_result.rows_affected(),
+            failed_deleted: failed_result.rows_affected(),
         })
     }
 
@@ -696,4 +724,5 @@ pub struct QueueStats {
 pub struct CleanupResult {
     pub completed_deleted: u64,
     pub dead_letter_deleted: u64,
+    pub failed_deleted: u64,
 }

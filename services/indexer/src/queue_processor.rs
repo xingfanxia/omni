@@ -461,10 +461,15 @@ impl QueueProcessor {
                 }
                 _ = cleanup_interval.tick() => {
                     if let Ok(result) = self.event_queue.cleanup_old_events(7).await {
-                        if result.completed_deleted > 0 || result.dead_letter_deleted > 0 {
+                        if result.completed_deleted > 0
+                            || result.dead_letter_deleted > 0
+                            || result.failed_deleted > 0
+                        {
                             info!(
-                                "Cleaned up old events - Completed: {}, Dead Letter: {}",
-                                result.completed_deleted, result.dead_letter_deleted
+                                "Cleaned up old events - Completed: {}, Dead Letter: {}, Failed: {}",
+                                result.completed_deleted,
+                                result.dead_letter_deleted,
+                                result.failed_deleted
                             );
                         }
                     }
@@ -541,7 +546,7 @@ impl QueueProcessor {
         // Sync-type-aware batching: only process if pending events meet a
         // threshold (size or age). This lets small incremental trickles
         // accumulate while full-sync bursts flow through quickly.
-        let summary = self.event_queue.get_queue_summary().await?;
+        let summary = self.event_queue.get_pending_summary().await?;
         let (by_sync_type, orphan_count) = summarize_pending(&summary);
         let ready = self.batching_config.ready_sync_types(
             &by_sync_type,
