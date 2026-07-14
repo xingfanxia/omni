@@ -119,6 +119,7 @@ pub struct SlackMessage {
     #[serde(rename = "type")]
     pub msg_type: String,
     pub text: String,
+    #[serde(default)]
     pub user: String,
     pub ts: String,
     pub thread_ts: Option<String>,
@@ -137,6 +138,7 @@ pub struct SlackAttachment {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SlackFile {
     pub id: String,
+    #[serde(default)]
     pub name: String,
     pub title: Option<String>,
     pub mimetype: Option<String>,
@@ -495,6 +497,20 @@ impl MessageGroup {
 }
 
 impl SlackFile {
+    pub fn display_name(&self) -> &str {
+        if !self.name.trim().is_empty() {
+            &self.name
+        } else if let Some(title) = self
+            .title
+            .as_deref()
+            .filter(|title| !title.trim().is_empty())
+        {
+            title
+        } else {
+            &self.id
+        }
+    }
+
     pub fn to_connector_event(
         &self,
         sync_run_id: String,
@@ -505,18 +521,23 @@ impl SlackFile {
         group_email: &str,
     ) -> ConnectorEvent {
         let document_id = format!("slack_file_{}", self.id);
+        let file_name = self.display_name().to_string();
 
         let mut extra = HashMap::new();
 
         // Store Slack-specific file metadata (non-attribute fields only)
         let mut slack_metadata = HashMap::new();
         slack_metadata.insert("channel_id".to_string(), json!(channel_id.clone()));
-        slack_metadata.insert("file_name".to_string(), json!(self.name));
+        slack_metadata.insert("file_name".to_string(), json!(file_name.clone()));
         slack_metadata.insert("file_id".to_string(), json!(self.id));
         extra.insert("slack".to_string(), json!(slack_metadata));
 
         let metadata = DocumentMetadata {
-            title: self.title.clone().or_else(|| Some(self.name.clone())),
+            title: self
+                .title
+                .clone()
+                .filter(|title| !title.trim().is_empty())
+                .or_else(|| Some(file_name.clone())),
             author: None,
             created_at: None,
             updated_at: None,
@@ -524,7 +545,7 @@ impl SlackFile {
             mime_type: self.mimetype.clone(),
             size: Some(self.size.to_string()),
             url: self.permalink.clone(),
-            path: Some(format!("#{}/{}", channel_name, self.name)),
+            path: Some(format!("#{}/{}", channel_name, file_name)),
             extra: Some(extra),
         };
 
@@ -548,5 +569,42 @@ impl SlackFile {
             permissions,
             attributes: Some(attributes),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slack_message_without_user_deserializes() {
+        let message: SlackMessage = serde_json::from_value(serde_json::json!({
+            "type": "message",
+            "text": "A Slack system message",
+            "ts": "1736942400.000100"
+        }))
+        .unwrap();
+
+        assert!(message.user.is_empty());
+    }
+
+    #[test]
+    fn slack_file_without_name_deserializes() {
+        let file: SlackFile = serde_json::from_value(serde_json::json!({
+            "id": "F_TEST",
+            "title": "Fallback title",
+            "size": 42
+        }))
+        .unwrap();
+
+        assert!(file.name.is_empty());
+        assert_eq!(file.display_name(), "Fallback title");
+
+        let untitled_file: SlackFile = serde_json::from_value(serde_json::json!({
+            "id": "F_UNTITLED",
+            "size": 42
+        }))
+        .unwrap();
+        assert_eq!(untitled_file.display_name(), "F_UNTITLED");
     }
 }
