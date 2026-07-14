@@ -5,6 +5,7 @@ use omni_connector_sdk::{
     SyncRequestValidationError, SyncType,
 };
 use serde_json::Value as JsonValue;
+use std::future::Future;
 use std::result::Result as StdResult;
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,10 +15,35 @@ use crate::models::{SlackConnectorState, SlackCredentials};
 use crate::socket::SocketModeManager;
 use crate::sync::SyncManager;
 
-/// Cadence for `ctx.heartbeat()` calls inside the realtime watcher. Must be
-/// well below the connector-manager's `stale_sync_timeout_minutes` so a quiet
-/// Socket Mode connection isn't swept as a dead sync.
-const REALTIME_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
+/// Cadence for `ctx.heartbeat()` calls while Slack work is still active. Must
+/// be well below the connector-manager's `stale_sync_timeout_minutes`.
+const SYNC_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
+
+async fn run_with_heartbeat_interval<T, F>(
+    ctx: &SyncContext,
+    operation: F,
+    heartbeat_interval: Duration,
+) -> Result<T>
+where
+    F: Future<Output = Result<T>>,
+{
+    let start = tokio::time::Instant::now() + heartbeat_interval;
+    let mut ticker = tokio::time::interval_at(start, heartbeat_interval);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    tokio::pin!(operation);
+
+    loop {
+        tokio::select! {
+            biased;
+            result = &mut operation => return result,
+            _ = ticker.tick() => {
+                if let Err(error) = ctx.heartbeat().await {
+                    warn!(error = %error, "Slack sync heartbeat failed");
+                }
+            }
+        }
+    }
+}
 
 pub struct SlackConnector {
     sync_manager: Arc<SyncManager>,
@@ -57,7 +83,7 @@ impl SlackConnector {
             )
             .await;
 
-        let mut heartbeat_ticker = tokio::time::interval(REALTIME_HEARTBEAT_INTERVAL);
+        let mut heartbeat_ticker = tokio::time::interval(SYNC_HEARTBEAT_INTERVAL);
         heartbeat_ticker.tick().await;
         while !ctx.is_cancelled() {
             tokio::select! {
@@ -164,7 +190,10 @@ impl Connector for SlackConnector {
 
         match ctx.sync_mode() {
             SyncType::Full | SyncType::Incremental => {
-                self.sync_manager.run_sync(source, creds, state, ctx).await
+                let operation = self
+                    .sync_manager
+                    .run_sync(source, creds, state, ctx.clone());
+                run_with_heartbeat_interval(&ctx, operation, SYNC_HEARTBEAT_INTERVAL).await
             }
             SyncType::Realtime => self.run_realtime(creds, ctx).await,
         }
@@ -179,10 +208,13 @@ impl Connector for SlackConnector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{Router, extract::State, http::StatusCode, routing::post};
     use omni_connector_sdk::SdkClient;
     use serde_json::json;
     use shared::models::{AuthType, ServiceProvider, SourceScope, UserFilterMode};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use time::OffsetDateTime;
+    use tokio::net::TcpListener;
 
     fn connector() -> SlackConnector {
         SlackConnector::new(
@@ -263,5 +295,56 @@ mod tests {
             .expect_err("malformed credentials should fail before starting");
 
         assert!(matches!(error, SyncRequestValidationError::BadRequest(_)));
+    }
+
+    #[tokio::test]
+    async fn long_sync_operation_heartbeats_until_it_finishes() {
+        let heartbeat_count = Arc::new(AtomicUsize::new(0));
+        let app = Router::new()
+            .route(
+                "/sdk/sync/:id/heartbeat",
+                post(|State(count): State<Arc<AtomicUsize>>| async move {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    StatusCode::OK
+                }),
+            )
+            .with_state(Arc::clone(&heartbeat_count));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let ctx = SyncContext::new(
+            SdkClient::new(&format!("http://{}", address)),
+            "sync-run-1".to_string(),
+            "source-1".to_string(),
+            SourceType::Slack,
+            SyncType::Incremental,
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        run_with_heartbeat_interval(
+            &ctx,
+            async {
+                tokio::time::sleep(Duration::from_millis(90)).await;
+                Ok(())
+            },
+            Duration::from_millis(20),
+        )
+        .await
+        .unwrap();
+
+        let count_at_completion = heartbeat_count.load(Ordering::SeqCst);
+        assert!(
+            count_at_completion >= 3,
+            "long-running sync should heartbeat periodically"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(
+            heartbeat_count.load(Ordering::SeqCst),
+            count_at_completion,
+            "heartbeat loop must stop when the sync future finishes"
+        );
+
+        server.abort();
     }
 }
