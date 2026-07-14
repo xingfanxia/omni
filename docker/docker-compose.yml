@@ -407,6 +407,7 @@ services:
       CONNECTOR_MANAGER_URL: ${CONNECTOR_MANAGER_URL}
       CONNECTOR_HOST_NAME: slack-connector
       SLACK_MAX_AGE_DAYS: ${SLACK_MAX_AGE_DAYS:-730}
+      SLACK_MAX_DOWNLOAD_BYTES: ${SLACK_MAX_DOWNLOAD_BYTES:-52428800}
     networks:
       - omni-network
     depends_on:
