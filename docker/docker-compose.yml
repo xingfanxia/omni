@@ -160,6 +160,9 @@ services:
       AI_SERVICE_URL: ${AI_SERVICE_URL}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       ENCRYPTION_SALT: ${ENCRYPTION_SALT}
+      GC_RETENTION_DAYS: ${GC_RETENTION_DAYS:-7}
+      GC_BATCH_SIZE: ${GC_BATCH_SIZE:-100}
+      GC_DRY_RUN: ${GC_DRY_RUN:-false}
     networks:
       - omni-network
     depends_on:
