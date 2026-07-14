@@ -142,6 +142,7 @@ pub struct SlackFile {
     pub name: String,
     pub title: Option<String>,
     pub mimetype: Option<String>,
+    #[serde(default)]
     pub size: i64,
     pub url_private: Option<String>,
     pub url_private_download: Option<String>,
@@ -606,5 +607,15 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(untitled_file.display_name(), "F_UNTITLED");
+    }
+
+    #[test]
+    fn slack_file_without_size_deserializes_with_zero() {
+        let file: SlackFile = serde_json::from_value(serde_json::json!({
+            "id": "F_TEST"
+        }))
+        .unwrap();
+
+        assert_eq!(file.size, 0);
     }
 }
