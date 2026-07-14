@@ -6,7 +6,7 @@ _Last verified: 2026-07-11 (upstream rebase deploy)._
 
 - Checkout: `~/omni/repo` (branch = whatever is deployed; 2026-07-11: `rebase/upstream-20260711`)
 - Compose: run from `~/omni/repo/docker/` with `--env-file ../.env` (root `.env` is untracked; holds secrets + `OMNI_VERSION` + `ENABLED_CONNECTORS` profiles)
-- `docker/docker-compose.override.yml` (untracked) pins locally-built `*-custom:latest` images: web, searcher, indexer, connector-manager, migrator, google-connector, telegram-connector
+- `docker/docker-compose.override.yml` (untracked) pins locally-built custom images. Use immutable commit tags for new builds so rollback does not depend on a mutable `latest` tag.
 - `OMNI_VERSION=latest` since 2026-07-11 — upstream stopped cutting semver at 0.1.2; each ghcr image's `latest` = its newest master build. Pull deliberately, never blind-restart onto a fresh pull.
 
 ## Build custom images (from repo root)
@@ -16,6 +16,33 @@ docker build -f services/<svc>/Dockerfile -t omni-<svc>-custom:latest .   # sear
 docker build -f connectors/google/Dockerfile -t omni-google-connector-custom:latest .
 docker build -f connectors/telegram/Dockerfile -t omni-telegram-connector:latest .
 docker build -t omni-web-custom:latest web/                               # web builds with web/ context
+```
+
+For the bounded Slack-sync and content-blob-GC patch, build immutable images
+from the exact deployed commit:
+
+```bash
+tag="$(git rev-parse --short=8 HEAD)"
+docker build -f connectors/slack/Dockerfile -t "omni-slack-connector-custom:$tag" .
+docker build -f services/indexer/Dockerfile -t "omni-indexer-custom:$tag" .
+```
+
+Pin both tags in `docker/docker-compose.override.yml`. Keep the Slack connector
+at `mem_limit: 512m`; the connector rejects downloads above
+`SLACK_MAX_DOWNLOAD_BYTES` (50 MiB by default) before buffering them.
+
+The GC reconciliation queries are bounded and have transaction-local statement
+and lock timeouts. The storage deletion path still has a small interval between
+the database candidate transaction and object-store deletion, so a first deploy
+must set `GC_DRY_RUN: "true"` on the indexer. Dry-run mode still marks and
+unmarks references but does not delete objects. Trigger one run, confirm all
+three phases finish within 30 seconds with sensible counts, then remove that
+override only after an operator accepts enabling deletion:
+
+```bash
+docker run --rm --network docker_omni-network curlimages/curl -fsS \
+  -X POST "http://indexer:${INDEXER_PORT}/admin/gc/run"
+docker logs omni-indexer --since 10m | grep -E "garbage collection|GC completed|DRY RUN"
 ```
 
 ## Fork maintenance rules (learned the hard way)
