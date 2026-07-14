@@ -19,6 +19,9 @@ pub struct MockSlackState {
     pub messages: HashMap<String, Vec<SlackMessage>>,
     pub users: Vec<SlackUser>,
     pub channel_members: HashMap<String, Vec<String>>,
+    /// Optional per-channel history delay used to hold a sync between
+    /// channel checkpoints when exercising crash/resume behavior.
+    pub history_delay_ms: HashMap<String, u64>,
     /// Map from `(channel_id, parent_ts)` to thread reply messages. Slack's
     /// `conversations.replies` response includes the parent as `messages[0]`
     /// — the mock prepends the parent automatically when responding.
@@ -141,6 +144,10 @@ async fn conversations_history(
     State(state): State<Arc<MockSlackState>>,
     Query(params): Query<ConversationsHistoryParams>,
 ) -> Json<ConversationsHistoryResponse> {
+    if let Some(delay_ms) = state.history_delay_ms.get(&params.channel).copied() {
+        tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+    }
+
     let messages = state
         .messages
         .get(&params.channel)

@@ -10,7 +10,7 @@ use std::sync::atomic::AtomicBool;
 use tracing::{debug, error, info, warn};
 
 use crate::auth::AuthManager;
-use crate::client::SlackClient;
+use crate::client::{ConversationListSession, SlackClient};
 use crate::content::ContentProcessor;
 use crate::models::{
     MessageGroup, SlackChannel, SlackConnectorState, SlackCredentials, SlackMessage,
@@ -185,7 +185,12 @@ impl SyncManager {
             .await?;
 
         let mut connector_state = state.unwrap_or_default();
-        let is_full_sync = ctx.sync_mode() == SyncType::Full;
+        if ctx.sync_mode() == SyncType::Full && !ctx.is_resume() {
+            connector_state.channel_timestamps.clear();
+            ctx.save_checkpoint(serde_json::to_value(&connector_state)?)
+                .await?;
+        }
+        let use_channel_checkpoint = ctx.sync_mode() != SyncType::Full || ctx.is_resume();
 
         let mut content_processor = ContentProcessor::new();
         self.fetch_all_users(&bot_creds.bot_token, &mut content_processor)
@@ -235,10 +240,10 @@ impl SyncManager {
                 }
             }
 
-            let last_ts = if is_full_sync {
-                None
-            } else {
+            let last_ts = if use_channel_checkpoint {
                 connector_state.channel_timestamps.get(&channel.id).cloned()
+            } else {
+                None
             };
 
             let group_email = channel_group_email(&bot_creds.team_id, &channel.id);
@@ -594,11 +599,12 @@ impl SyncManager {
     async fn fetch_all_channels(&self, token: &str) -> Result<Vec<SlackChannel>> {
         let mut cursor = None;
         let mut all_channels = Vec::new();
+        let mut list_session = ConversationListSession::default();
 
         loop {
             let response = self
                 .slack_client
-                .list_conversations(token, cursor.as_deref())
+                .list_conversations_in_session(token, cursor.as_deref(), &mut list_session)
                 .await?;
             all_channels.extend(response.channels);
 
@@ -1029,11 +1035,11 @@ impl SyncManager {
                 match self.slack_client.download_file(token, file).await {
                     Ok(Some((bytes, ct))) if !bytes.is_empty() => (bytes, ct),
                     Ok(_) => {
-                        debug!("Skipped empty/missing file: {}", file.name);
+                        debug!("Skipped empty/missing file: {}", file.display_name());
                         continue;
                     }
                     Err(e) => {
-                        warn!("Failed to download file {}: {}", file.name, e);
+                        warn!("Failed to download file {}: {}", file.display_name(), e);
                         continue;
                     }
                 };
@@ -1047,14 +1053,16 @@ impl SyncManager {
             // pass through as-is. Failures here are non-fatal — we skip the
             // file but continue the sync.
             let content_id = match ctx
-                .extract_and_store_content(bytes, &mime, Some(&file.name))
+                .extract_and_store_content(bytes, &mime, Some(file.display_name()))
                 .await
             {
                 Ok(id) => id,
                 Err(e) => {
                     warn!(
                         "Failed to extract/store content for Slack file {} ({}): {}",
-                        file.name, mime, e
+                        file.display_name(),
+                        mime,
+                        e
                     );
                     continue;
                 }
