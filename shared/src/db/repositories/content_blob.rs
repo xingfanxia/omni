@@ -51,33 +51,32 @@ const MARK_ORPHANS_QUERY: &str = r#"
     WHERE cb.id = candidates.id
     "#;
 
-const UNMARK_NON_ORPHANS_SCAN_BATCH: i64 = 10_000;
+const UNMARK_NON_ORPHANS_BATCH: i64 = 10_000;
 const UNMARK_NON_ORPHANS_QUERY: &str = r#"
-    WITH scan_batch AS MATERIALIZED (
+    WITH candidates AS MATERIALIZED (
         SELECT cb.id
         FROM content_blobs cb
         WHERE cb.orphaned_at IS NOT NULL
-        ORDER BY cb.orphaned_at
+          AND (
+              EXISTS (
+                  SELECT 1 FROM documents d WHERE d.content_id = cb.id::text
+              )
+              OR EXISTS (
+                  SELECT 1 FROM connector_events_queue q
+                  WHERE q.status IN ('pending', 'processing')
+                    AND q.payload->>'content_id' = cb.id::text
+              )
+              OR EXISTS (
+                  SELECT 1 FROM uploads u WHERE u.content_id = cb.id
+              )
+          )
         LIMIT $1
         FOR UPDATE OF cb
     )
     UPDATE content_blobs cb
     SET orphaned_at = NULL
-    FROM scan_batch
-    WHERE cb.id = scan_batch.id
-      AND (
-          EXISTS (
-              SELECT 1 FROM documents d WHERE d.content_id = cb.id::text
-          )
-          OR EXISTS (
-              SELECT 1 FROM connector_events_queue q
-              WHERE q.status IN ('pending', 'processing')
-                AND q.payload->>'content_id' = cb.id::text
-          )
-          OR EXISTS (
-              SELECT 1 FROM uploads u WHERE u.content_id = cb.id
-          )
-      )
+    FROM candidates
+    WHERE cb.id = candidates.id
     "#;
 
 impl ContentBlobRepository {
@@ -116,10 +115,11 @@ impl ContentBlobRepository {
     /// Unmark blobs that are no longer orphaned (got re-referenced).
     /// Returns the number of blobs unmarked, bounded to one batch per call.
     ///
-    /// The oldest orphan scan is capped before reference checks, so each call
-    /// performs at most one bounded set of indexed probes. Transaction-local
-    /// statement and lock timeouts prevent a GC pass from monopolizing the
-    /// database; an error rolls the batch back before the delete phase can run.
+    /// Only blobs that currently have a reference enter the capped candidate
+    /// batch. True orphans therefore cannot occupy the batch and starve a
+    /// re-referenced blob behind them. Transaction-local statement and lock
+    /// timeouts bound even a sparse indexed search; an error rolls the batch
+    /// back before the delete phase can run.
     pub async fn unmark_non_orphans(&self) -> Result<i64, DatabaseError> {
         let mut transaction = self.pool.begin().await?;
         sqlx::query("SET LOCAL statement_timeout = '30s'")
@@ -130,7 +130,7 @@ impl ContentBlobRepository {
             .await?;
 
         let result = sqlx::query(UNMARK_NON_ORPHANS_QUERY)
-            .bind(UNMARK_NON_ORPHANS_SCAN_BATCH)
+            .bind(UNMARK_NON_ORPHANS_BATCH)
             .execute(&mut *transaction)
             .await?;
         transaction.commit().await?;
@@ -428,7 +428,7 @@ mod tests {
         let plan = sqlx::query_scalar::<_, String>(&format!(
             "EXPLAIN (COSTS OFF) {UNMARK_NON_ORPHANS_QUERY}"
         ))
-        .bind(UNMARK_NON_ORPHANS_SCAN_BATCH)
+        .bind(UNMARK_NON_ORPHANS_BATCH)
         .fetch_all(&mut *connection)
         .await
         .unwrap()
@@ -453,49 +453,63 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unmark_non_orphans_bounds_the_orphan_scan_before_reference_checks() {
-        const SCAN_BATCH: i64 = 10_000;
+    async fn unmark_non_orphans_does_not_starve_references_after_old_true_orphans() {
+        const TRUE_ORPHAN_COUNT: i64 = UNMARK_NON_ORPHANS_BATCH;
         let db = TestDatabase::new().await;
 
         sqlx::query(
             r#"
             INSERT INTO content_blobs (id, orphaned_at)
-            SELECT lpad(value::text, 26, '0'), CURRENT_TIMESTAMP - INTERVAL '2 days'
+            SELECT
+                lpad(value::text, 26, '0'),
+                CURRENT_TIMESTAMP - INTERVAL '2 days' + value * INTERVAL '1 millisecond'
             FROM generate_series(1, $1) AS value
             "#,
         )
-        .bind(SCAN_BATCH)
+        .bind(TRUE_ORPHAN_COUNT + 1)
         .execute(&db.pool)
         .await
-        .unwrap();
-        sqlx::query(
-            r#"
-            INSERT INTO content_blobs (id, orphaned_at)
-            VALUES (lpad($1::text, 26, '0'), CURRENT_TIMESTAMP)
-            "#,
-        )
-        .bind(SCAN_BATCH + 1)
-        .execute(&db.pool)
-        .await
-        .unwrap();
-        sqlx::query("INSERT INTO documents (content_id) VALUES (lpad($1::text, 26, '0'))")
-            .bind(SCAN_BATCH + 1)
+        .expect("seed old true orphans and one newer marked reference");
+
+        let referenced_id = format!("{:026}", TRUE_ORPHAN_COUNT + 1);
+        sqlx::query("INSERT INTO documents (content_id) VALUES ($1)")
+            .bind(&referenced_id)
             .execute(&db.pool)
             .await
-            .unwrap();
+            .expect("seed reference after the oldest scan window");
 
         let repo = ContentBlobRepository::new(&db.pool);
-
         assert_eq!(
             repo.unmark_non_orphans().await.unwrap(),
-            0,
-            "reference checks must not scan past the bounded oldest-orphan batch"
+            1,
+            "a referenced blob must not starve behind an unchanged batch of old true orphans"
+        );
+
+        let referenced_orphaned_at: Option<time::OffsetDateTime> =
+            sqlx::query_scalar("SELECT orphaned_at FROM content_blobs WHERE id = $1")
+                .bind(&referenced_id)
+                .fetch_one(&db.pool)
+                .await
+                .unwrap();
+        assert!(
+            referenced_orphaned_at.is_none(),
+            "the re-referenced blob must be unmarked"
+        );
+
+        let true_orphans_still_marked: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM content_blobs WHERE orphaned_at IS NOT NULL")
+                .fetch_one(&db.pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            true_orphans_still_marked, TRUE_ORPHAN_COUNT,
+            "scanning for references must not refresh or shorten true-orphan retention"
         );
     }
 
     #[tokio::test]
     async fn unmark_non_orphans_updates_at_most_one_batch_and_eventually_converges() {
-        const BATCH_SIZE: i64 = UNMARK_NON_ORPHANS_SCAN_BATCH;
+        const BATCH_SIZE: i64 = UNMARK_NON_ORPHANS_BATCH;
         let db = TestDatabase::new().await;
 
         sqlx::query(

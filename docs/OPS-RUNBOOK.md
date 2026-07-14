@@ -35,13 +35,24 @@ The GC reconciliation queries are bounded and have transaction-local statement
 and lock timeouts. The storage deletion path still has a small interval between
 the database candidate transaction and object-store deletion, so a first deploy
 must set `GC_DRY_RUN: "true"` on the indexer. Dry-run mode still marks and
-unmarks references but does not delete objects. Trigger one run, confirm all
-three phases finish within 30 seconds with sensible counts, then remove that
-override only after an operator accepts enabling deletion:
+unmarks references but does not delete objects. Keep that override in place
+until the deletion path gains an atomic claim/lease or outbox and passes a
+separate data-safety review; operator acknowledgement alone does not close the
+known race.
+
+After recreating the indexer, verify the effective container environment before
+triggering GC. Each reconciliation/fetch statement has its own 30-second
+timeout, so the complete three-phase run can legitimately take longer than 30
+seconds:
 
 ```bash
+docker inspect omni-indexer --format '{{range .Config.Env}}{{println .}}{{end}}' \
+  | grep -x 'GC_DRY_RUN=true'
+indexer_port="$(docker inspect omni-indexer --format '{{range .Config.Env}}{{println .}}{{end}}' \
+  | sed -n 's/^PORT=//p')"
+test -n "$indexer_port"
 docker run --rm --network docker_omni-network curlimages/curl -fsS \
-  -X POST "http://indexer:${INDEXER_PORT}/admin/gc/run"
+  -X POST "http://indexer:${indexer_port}/admin/gc/run"
 docker logs omni-indexer --since 10m | grep -E "garbage collection|GC completed|DRY RUN"
 ```
 
