@@ -42,7 +42,7 @@ impl ObjectStorage for PostgresStorage {
         // writes the SELECT+INSERT race may produce a small bounded number of
         // duplicates per hash; those are cleaned up by the orphan GC.
         let existing: Option<String> =
-            sqlx::query_scalar("SELECT id FROM content_blobs WHERE sha256_hash = $1 LIMIT 1")
+            sqlx::query_scalar("SELECT id FROM content_blobs WHERE sha256_hash = $1::bpchar AND sha256_hash::text = $1 LIMIT 1")
                 .bind(&hash)
                 .fetch_optional(&self.pool)
                 .await
@@ -179,7 +179,7 @@ impl ObjectStorage for PostgresStorage {
 
     async fn find_by_hash(&self, sha256_hash: &str) -> Result<Option<String>, StorageError> {
         let result: Option<String> =
-            sqlx::query_scalar("SELECT id FROM content_blobs WHERE sha256_hash = $1 LIMIT 1")
+            sqlx::query_scalar("SELECT id FROM content_blobs WHERE sha256_hash = $1::bpchar AND sha256_hash::text = $1 LIMIT 1")
                 .bind(sha256_hash)
                 .fetch_optional(&self.pool)
                 .await

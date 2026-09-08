@@ -98,7 +98,7 @@ impl ObjectStorage for S3Storage {
         // Under concurrent writes a small bounded number of duplicates may slip
         // through; they are cleaned up by the orphan GC.
         let existing: Option<String> =
-            sqlx::query_scalar("SELECT id FROM content_blobs WHERE sha256_hash = $1 LIMIT 1")
+            sqlx::query_scalar("SELECT id FROM content_blobs WHERE sha256_hash = $1::bpchar AND sha256_hash::text = $1 LIMIT 1")
                 .bind(&hash)
                 .fetch_optional(&self.pool)
                 .await
@@ -376,7 +376,7 @@ impl ObjectStorage for S3Storage {
     async fn find_by_hash(&self, sha256_hash: &str) -> Result<Option<String>, StorageError> {
         // With Postgres metadata, we can efficiently query by hash
         let result: Option<String> =
-            sqlx::query_scalar("SELECT id FROM content_blobs WHERE sha256_hash = $1 AND storage_backend = 's3' LIMIT 1")
+            sqlx::query_scalar("SELECT id FROM content_blobs WHERE sha256_hash = $1::bpchar AND sha256_hash::text = $1 AND storage_backend = 's3' LIMIT 1")
                 .bind(sha256_hash)
                 .fetch_optional(&self.pool)
                 .await
