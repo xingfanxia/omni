@@ -75,23 +75,25 @@ impl ObjectStorage for PostgresStorage {
     }
 
     async fn get_content(&self, content_id: &str) -> Result<Vec<u8>, StorageError> {
-        let result: Option<Vec<u8>> =
-            sqlx::query_scalar("SELECT content FROM content_blobs WHERE id = $1")
-                .bind(content_id)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(|e| StorageError::Backend(format!("Failed to get content: {}", e)))?;
+        let result: Option<Vec<u8>> = sqlx::query_scalar(
+            "SELECT content FROM content_blobs WHERE id = $1::bpchar AND id::text = $1",
+        )
+        .bind(content_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| StorageError::Backend(format!("Failed to get content: {}", e)))?;
 
         result.ok_or_else(|| StorageError::NotFound(content_id.to_string()))
     }
 
     async fn delete_content(&self, content_id: &str) -> Result<(), StorageError> {
-        let rows_affected = sqlx::query("DELETE FROM content_blobs WHERE id = $1")
-            .bind(content_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| StorageError::Backend(format!("Failed to delete content: {}", e)))?
-            .rows_affected();
+        let rows_affected =
+            sqlx::query("DELETE FROM content_blobs WHERE id = $1::bpchar AND id::text = $1")
+                .bind(content_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| StorageError::Backend(format!("Failed to delete content: {}", e)))?
+                .rows_affected();
 
         if rows_affected == 0 {
             return Err(StorageError::NotFound(content_id.to_string()));
@@ -101,12 +103,13 @@ impl ObjectStorage for PostgresStorage {
     }
 
     async fn get_content_size(&self, content_id: &str) -> Result<i64, StorageError> {
-        let size: Option<i64> =
-            sqlx::query_scalar("SELECT size_bytes FROM content_blobs WHERE id = $1")
-                .bind(content_id)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(|e| StorageError::Backend(format!("Failed to get content size: {}", e)))?;
+        let size: Option<i64> = sqlx::query_scalar(
+            "SELECT size_bytes FROM content_blobs WHERE id = $1::bpchar AND id::text = $1",
+        )
+        .bind(content_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| StorageError::Backend(format!("Failed to get content size: {}", e)))?;
 
         size.ok_or_else(|| StorageError::NotFound(content_id.to_string()))
     }
@@ -130,7 +133,11 @@ impl ObjectStorage for PostgresStorage {
                 .join(",");
 
             let query = format!(
-                "SELECT id, content FROM content_blobs WHERE id IN ({})",
+                "SELECT id, content FROM content_blobs WHERE id IN ({}) AND id::text IN ({})",
+                (1..=chunk.len())
+                    .map(|i| format!("${}::bpchar", i))
+                    .collect::<Vec<_>>()
+                    .join(","),
                 placeholders
             );
 
@@ -160,7 +167,7 @@ impl ObjectStorage for PostgresStorage {
         content_id: &str,
     ) -> Result<ContentMetadata, StorageError> {
         let result: Option<(Option<String>, i64, String)> = sqlx::query_as(
-            "SELECT content_type, size_bytes, sha256_hash FROM content_blobs WHERE id = $1",
+            "SELECT content_type, size_bytes, sha256_hash FROM content_blobs WHERE id = $1::bpchar AND id::text = $1",
         )
         .bind(content_id)
         .fetch_optional(&self.pool)
