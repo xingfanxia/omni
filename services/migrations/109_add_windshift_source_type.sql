@@ -27,7 +27,7 @@ CHECK (
     'paperless_ngx',
     'nextcloud',
     'google_ads',
-    'darwinbox',
+    'darwinbox', 'telegram',
     'windshift'
   ))
   OR
@@ -51,7 +51,7 @@ CHECK (provider IN (
   'paperless_ngx',
   'nextcloud',
   'google_ads',
-  'darwinbox',
+  'darwinbox', 'telegram',
   'remote_mcp',
   'windshift'
 ));

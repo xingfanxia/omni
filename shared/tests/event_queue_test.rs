@@ -908,7 +908,14 @@ mod tests {
         let only_entry = &summary.entries[0];
         assert_eq!(only_entry.status, EventStatus::Pending);
         assert_eq!(only_entry.count, 1);
-        assert_eq!(only_entry.size_bytes, 42);
+        let payload_bytes: i64 = sqlx::query_scalar(
+            "SELECT pg_column_size(payload)::BIGINT FROM connector_events_queue WHERE source_id = $1 AND status = 'pending' LIMIT 1",
+        )
+        .bind(TEST_SOURCE_ID)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(only_entry.size_bytes, 42 + payload_bytes);
     }
 
     #[tokio::test]

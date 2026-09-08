@@ -16,7 +16,7 @@ ALTER TABLE service_credentials ADD CONSTRAINT service_credentials_provider_chec
 CHECK (provider IN (
   'google', 'slack', 'atlassian', 'github', 'notion', 'fireflies',
   'hubspot', 'microsoft', 'imap', 'clickup', 'linear', 'paperless_ngx',
-  'nextcloud', 'google_ads', 'darwinbox',
+  'nextcloud', 'google_ads', 'darwinbox', 'telegram',
   'remote_mcp'
 ));
 
@@ -30,7 +30,7 @@ ALTER TABLE sources ADD CONSTRAINT sources_source_type_check CHECK (
       'notion', 'web', 'github', 'local_files', 'file_system', 'fireflies',
       'hubspot', 'one_drive', 'share_point', 'outlook', 'outlook_calendar',
       'imap', 'clickup', 'linear', 'ms_teams', 'paperless_ngx', 'nextcloud',
-      'google_ads', 'darwinbox'
+      'google_ads', 'darwinbox', 'telegram'
     ))
     OR
     (integration_type = 'remote_mcp' AND source_type ~ '^[a-z][a-z0-9_-]{1,49}$')
