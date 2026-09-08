@@ -124,6 +124,46 @@ problem. A realtime watcher being healthy is not sufficient evidence.
 
 ## Health checks
 
+### Content hash lookup I/O amplification (2026-09-08)
+
+`content_blobs.sha256_hash` is `CHAR(64)`, but SQLx binds Rust strings as
+PostgreSQL `TEXT`. A plain `sha256_hash = $1` consequently casts the column to
+text and bypasses the existing character hash index. In production this caused
+30-second full-table scans over roughly 4.9 million blobs, disk contention, and
+intermittent Fleet probe timeouts. The Fleet runner kills its command after eight
+seconds, explaining `sources query failed: exit 137`; this incident had no
+Postgres cgroup OOM kills.
+
+All six storage lookups now cast the parameter to `bpchar` so the existing index
+is usable. They retain the original text equality as a filter to preserve exact
+input semantics. Unlike `char(64)`, `bpchar` does not truncate oversized inputs.
+The focused regression uses the actual source queries, TEXT prepared parameters,
+and session-local temporary fixtures:
+
+```bash
+python3 scripts/ops/verify-content-hash-index.py \
+  docker exec -i omni-postgres psql -U omni -d omni
+```
+
+An online compatibility index allows existing immutable images to recover before
+they are rebuilt. It changes no stored rows and does not require a restart:
+
+```sql
+SET lock_timeout = '5s';
+SET statement_timeout = '15min';
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_content_blobs_sha256_hash_text
+  ON content_blobs ((sha256_hash::text));
+```
+
+After creation, require `pg_index.indisvalid` and `indisready`, and run
+`EXPLAIN (ANALYZE, BUFFERS)` with a prepared `TEXT` parameter for the original
+uncast query. Verify the new index is used and monitor Fleet across subsequent
+polls and connector sync activity. If a concurrent build is interrupted, inspect
+the index flags before retrying: `IF NOT EXISTS` alone does not repair an invalid
+index. Keep both indexes through any image rollout; do not remove the
+compatibility index until all deployed callers and rollback images are accounted
+for. Production source images remain unchanged by this database mitigation.
+
 ```bash
 docker compose --env-file ../.env ps
 docker logs omni-indexer --since 10m | grep "Queue stats"      # Pending/Failed/Dead Letter
