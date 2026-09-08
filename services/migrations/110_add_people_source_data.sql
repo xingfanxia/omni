@@ -130,7 +130,7 @@ CREATE INDEX IF NOT EXISTS idx_connector_events_person_identity_order
     WHERE event_type IN ('person_sync', 'person_deleted')
       AND status IN ('pending', 'processing', 'failed');
 
-DROP INDEX people_search_idx;
+DROP INDEX IF EXISTS people_search_idx;
 CREATE INDEX people_search_idx ON people
 USING bm25 (
     id,
