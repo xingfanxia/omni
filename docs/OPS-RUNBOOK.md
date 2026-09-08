@@ -1,13 +1,12 @@
 # Omni Ops Runbook (cl-onyx production)
 
-_Last verified: 2026-07-14 (bounded indexer + Slack heartbeat deploy)._
+_Last verified: 2026-09-08 (upstream rebase deployed; source `16cb24c4`)._
 
 ## Layout
 
-- Checkout: `~/omni/repo`. Production source is pinned by immutable component
-  commits, not by one shared branch or `HEAD`. Current pins are indexer
-  `d4cdb5ac` and Slack connector `0a44cd68`; the Slack commit is retained on
-  `origin/fix/slack-sync-heartbeat`.
+- Checkout: `~/omni/repo`, detached at `16cb24c4`. Immutable component image pins,
+  migration compatibility, backup, login-origin repair, and live acceptance are
+  recorded in the [production upgrade report](PRODUCTION-UPGRADE-20260908.md).
 - Compose: run from `~/omni/repo/docker/` with `--env-file ../.env` (root `.env` is untracked; holds secrets + `OMNI_VERSION` + `ENABLED_CONNECTORS` profiles)
 - `docker/docker-compose.override.yml` (untracked) pins locally-built custom images.
   The root `.env`, override, and their backups are runtime state and stay

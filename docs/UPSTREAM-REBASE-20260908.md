@@ -1,5 +1,8 @@
 # Upstream rebase, 2026-09-08
 
+This records source-stage checks. The subsequent production rollout and final
+corrections are recorded in [production acceptance](PRODUCTION-UPGRADE-20260908.md).
+
 The fork is rebased onto `getomnico/omni` master `24e0b619` (2026-09-07),
 preserving the 27 fork commits through the content-hash lookup repair. This is
 a source branch. Production remains on its existing immutable images, with the
