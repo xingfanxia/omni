@@ -27,7 +27,7 @@ CHECK (
     'paperless_ngx',
     'nextcloud',
     'google_ads',
-    'darwinbox',
+    'darwinbox', 'telegram',
     'windshift',
     'salesforce'
   ))
@@ -52,7 +52,7 @@ CHECK (provider IN (
   'paperless_ngx',
   'nextcloud',
   'google_ads',
-  'darwinbox',
+  'darwinbox', 'telegram',
   'remote_mcp',
   'windshift',
   'salesforce'
