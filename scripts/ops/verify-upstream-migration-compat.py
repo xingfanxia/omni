@@ -50,6 +50,10 @@ INSERT INTO sources (id, name, source_type, created_by) VALUES
 INSERT INTO service_credentials (id, source_id, provider, auth_type, credentials) VALUES
  ('00000000000000000000000003', '00000000000000000000000002', 'telegram', 'api_key',
  '{"encrypted_data": {}, "version": 1}');
+"""
+
+# Migration 110 deduplicates people; only meaningful when the upgrade crosses it.
+PEOPLE_FIXTURES = """
 INSERT INTO people (id, email, display_name, department, metadata) VALUES
  ('00000000000000000000000010', 'Person@example.invalid', 'Longest Display Name', NULL, '{"keeper": true}'),
  ('00000000000000000000000011', 'person@example.invalid', 'Short', 'Engineering', '{"loser": true}'),
@@ -58,13 +62,8 @@ UPDATE people SET manager_id = '00000000000000000000000011'
  WHERE id = '00000000000000000000000012';
 """
 
-
-ASSERTIONS = """
+PEOPLE_ASSERTIONS = """
 DO $$ BEGIN
- IF NOT EXISTS (SELECT 1 FROM sources WHERE source_type = 'telegram' AND integration_type = 'connector')
-    OR NOT EXISTS (SELECT 1 FROM service_credentials WHERE provider = 'telegram') THEN
-   RAISE EXCEPTION 'Telegram fixture was lost';
- END IF;
  IF (SELECT count(*) FROM people WHERE lower(email) = 'person@example.invalid') <> 1
     OR NOT EXISTS (SELECT 1 FROM people WHERE id = '00000000000000000000000010'
        AND email = 'person@example.invalid' AND department = 'Engineering'
@@ -72,6 +71,16 @@ DO $$ BEGIN
     OR NOT EXISTS (SELECT 1 FROM people WHERE id = '00000000000000000000000012'
        AND manager_id = '00000000000000000000000010') THEN
    RAISE EXCEPTION 'People deduplication lost fields or manager relationship';
+ END IF;
+END $$;
+"""
+
+
+ASSERTIONS = """
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM sources WHERE source_type = 'telegram' AND integration_type = 'connector')
+    OR NOT EXISTS (SELECT 1 FROM service_credentials WHERE provider = 'telegram') THEN
+   RAISE EXCEPTION 'Telegram fixture was lost';
  END IF;
  IF to_regclass('public.skills') IS NULL OR to_regclass('public.tasks') IS NULL
     OR to_regclass('public.idx_sync_runs_source_started') IS NULL
@@ -131,11 +140,13 @@ def main():
         if version not in files or hashlib.sha384(files[version].read_bytes()).hexdigest() != checksum:
             raise ValueError(f"Applied migration {version} is missing or modified")
         applied[version] = checksum
-    if set(applied) != set(range(1, 106)):
-        raise ValueError("This gate requires the captured production baseline 001–105")
-    if set(files) != set(range(1, 114)):
-        raise ValueError("Expected unique contiguous fork migrations 001–113")
-    print("PASS: all 105 applied SHA-384 checksums preserved; versions 001–113 unique", flush=True)
+    baseline, latest = max(applied), max(files)
+    if set(applied) != set(range(1, baseline + 1)):
+        raise ValueError(f"Applied production migrations are not contiguous 001–{baseline:03d}")
+    if set(files) != set(range(1, latest + 1)) or latest <= baseline:
+        raise ValueError(f"Expected unique contiguous fork migrations 001–{latest:03d} beyond {baseline:03d}")
+    print(f"PASS: all {baseline} applied SHA-384 checksums preserved; versions 001–{latest:03d} unique", flush=True)
+    crosses_people = baseline < 110 <= latest
     if args.static_only:
         return
     if not args.schema_dump or not args.migrator_image:
@@ -173,7 +184,7 @@ def main():
             rows.append(f"({version}, '{description}', now(), true, decode('{checksum}', 'hex'), 0)")
         psql("TRUNCATE public._sqlx_migrations; INSERT INTO public._sqlx_migrations "
              "(version, description, installed_on, success, checksum, execution_time) VALUES "
-             + ",".join(rows) + ";\n" + FIXTURES)
+             + ",".join(rows) + ";\n" + FIXTURES + (PEOPLE_FIXTURES if crosses_people else ""))
         before = psql("SELECT version, encode(checksum, 'hex') FROM _sqlx_migrations ORDER BY version;")
         migrate = ("docker", "run", "--rm", "--pull=never", "--network", "container:" + name,
                    "--cpus", "1", "--memory", "512m", "--entrypoint", "sqlx",
@@ -181,8 +192,8 @@ def main():
                    "--mount", f"type=bind,src={ROOT / 'services/migrations'},dst=/migrations,readonly",
                    args.migrator_image, "migrate", "run", "--source", "/migrations")
         run(*migrate)
-        psql(ASSERTIONS)
-        after = psql("SELECT version, encode(checksum, 'hex') FROM _sqlx_migrations WHERE version <= 105 ORDER BY version;")
+        psql(ASSERTIONS + (PEOPLE_ASSERTIONS if crosses_people else ""))
+        after = psql(f"SELECT version, encode(checksum, 'hex') FROM _sqlx_migrations WHERE version <= {baseline} ORDER BY version;")
         if before != after:
             raise RuntimeError("Applied migration metadata changed during upgrade")
         observed = psql("SELECT version, success, encode(checksum, 'hex') FROM _sqlx_migrations ORDER BY version;")
@@ -191,7 +202,7 @@ def main():
         if observed != expected:
             raise RuntimeError("Final SQLx migration history does not match candidate files")
         run(*migrate)
-        print("PASS: isolated SQLx upgrade 105→113; Telegram and people fixtures; strict constraints; rerun", flush=True)
+        print(f"PASS: isolated SQLx upgrade {baseline:03d}→{latest:03d}; Telegram fixtures; strict constraints; rerun", flush=True)
     except Exception:
         if created:
             logs = run("docker", "logs", "--tail", "40", name, check=False)
