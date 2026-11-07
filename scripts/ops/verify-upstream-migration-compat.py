@@ -74,7 +74,9 @@ DO $$ BEGIN
    RAISE EXCEPTION 'People deduplication lost fields or manager relationship';
  END IF;
  IF to_regclass('public.skills') IS NULL OR to_regclass('public.tasks') IS NULL
-    OR to_regclass('public.idx_sync_runs_source_started') IS NULL THEN
+    OR to_regclass('public.idx_sync_runs_source_started') IS NULL
+    OR to_regclass('public.embedding_queue') IS NOT NULL
+    OR to_regclass('public.projects') IS NULL THEN
    RAISE EXCEPTION 'Expected upstream schema is missing';
  END IF;
 END $$;
@@ -83,6 +85,8 @@ INSERT INTO sources (id, name, source_type, created_by) VALUES
  ('00000000000000000000000005', 'windshift', 'windshift', '00000000000000000000000001');
 INSERT INTO sources (id, name, source_type, integration_type, created_by) VALUES
  ('00000000000000000000000006', 'remote', 'fixture-app', 'remote_mcp', '00000000000000000000000001');
+INSERT INTO sources (id, name, source_type, created_by) VALUES
+ ('00000000000000000000000013', 'zendesk', 'zendesk', '00000000000000000000000001');
 INSERT INTO service_credentials (id, source_id, provider, auth_type, credentials) VALUES
  ('00000000000000000000000007', '00000000000000000000000004', 'telegram', 'api_key', '{"encrypted_data": {}, "version": 1}'),
  ('00000000000000000000000008', '00000000000000000000000005', 'windshift', 'api_key', '{"encrypted_data": {}, "version": 1}'),
