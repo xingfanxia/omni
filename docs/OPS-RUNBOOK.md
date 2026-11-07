@@ -1,19 +1,25 @@
 # Omni Ops Runbook (cl-onyx production)
 
-_Last verified: 2026-07-14 (bounded indexer + Slack heartbeat deploy)._
+_Last verified: 2026-11-07 (rebase onto upstream v0.1.28, all custom images `ba8c3daf`)._
 
 ## Layout
 
-- Checkout: `~/omni/repo`. Production source is pinned by immutable component
-  commits, not by one shared branch or `HEAD`. Current pins are indexer
-  `d4cdb5ac` and Slack connector `0a44cd68`; the Slack commit is retained on
-  `origin/fix/slack-sync-heartbeat`.
+- Checkout: `~/omni/repo`. Since 2026-11-07 production runs branch
+  `origin/rebase/upstream-20261108` (fork patches rebased onto upstream
+  v0.1.28): every custom image is `:ba8c3daf` and the checkout is detached at
+  `44fd9e83` (same code plus a verifier fix). The previous release,
+  `16cb24c4`/`0db16eb7`/`9b9bc74a`, stays on `origin/rebase/upstream-20260908`
+  with its images still present for rollback. Each rebase gets a new branch;
+  never force-push the deployed one.
 - Compose: run from `~/omni/repo/docker/` with `--env-file ../.env` (root `.env` is untracked; holds secrets + `OMNI_VERSION` + `ENABLED_CONNECTORS` profiles)
 - `docker/docker-compose.override.yml` (untracked) pins locally-built custom images.
   The root `.env`, override, and their backups are runtime state and stay
   untracked. Use immutable per-component commit tags for new builds so rollback
   does not depend on a mutable `latest` tag.
-- `OMNI_VERSION=latest` since 2026-07-11 — upstream stopped cutting semver at 0.1.2; each ghcr image's `latest` = its newest master build. Pull deliberately, never blind-restart onto a fresh pull.
+- `OMNI_VERSION=latest` since 2026-07-11. Upstream semver resumed (v0.1.28 on
+  2026-11-04), but only `docling` still runs an upstream ghcr image; everything
+  else is a custom build listed in the override. Pull deliberately, never
+  blind-restart onto a fresh pull.
 
 ## Build custom images (from repo root)
 
@@ -115,6 +121,43 @@ channels; that is the restart/resume boundary. `fleet host cl-onyx` should show
 the scheduled slot as fresh/running and `fleet problems` should have no Omni
 problem. A realtime watcher being healthy is not sufficient evidence.
 
+## Rebase and upgrade (2026-11-07 procedure)
+
+Build and deploy scripts from the last upgrade are on cl-onyx:
+`scripts/ops/build-custom-images.sh <commit>` (copy on cl-onyx: `~/omni/build-20261108.sh`) (all 13 custom images from a release
+worktree in `~/omni/releases/<commit>`), `~/omni/deploy-20261108.sh` and
+`~/omni/rollback-20261108.sh`.
+
+1. Rebase the deployed commit onto `upstream/master` in a new worktree and
+   branch. Telegram source-type conflicts are unions; keep Telegram's port off
+   upstream's (Telegram runs on 8000 in production).
+2. Migrations: production's applied versions are the baseline. Upstream files
+   numbered at or below the fork's last applied version move up as one ordered
+   suffix (Nov 7: upstream 113–118 became 114–119). Add `'telegram'` to every
+   `sources_source_type_check` / `service_credentials_provider_check` rewrite.
+3. Gate: export `SELECT version, success, encode(checksum,'hex') FROM
+   _sqlx_migrations ORDER BY version` (psql `-At`) and a `--schema-only
+   --no-owner --no-acl` dump, then run
+   `scripts/ops/verify-upstream-migration-compat.py --applied-checksums …
+   --schema-dump … --migrator-image omni-migrator-custom:<commit>
+   --postgres-image paradedb/paradedb:0.24.2-pg17`.
+4. Full `pg_dump -Fc` to `~/omni/backups/` and check it with
+   `pg_restore --list` (Nov 7: 13.2 GB, about 35 minutes while serving).
+5. Deploy: stop app services (postgres, redis, caddy, docling stay up), pin
+   the override, check out the commit, run the migrator, `up -d`. About two
+   minutes of downtime.
+
+Since upstream #448 (in v0.1.28), embedding work lives in `tasks`
+(`task_type='document_embedding'`; statuses pending, running, completed,
+dead_letter). Migration 116 moved `embedding_queue` there and dropped it.
+Query `tasks` for queue health; the indexer prunes completed and dead-letter
+tasks older than seven days. The fork's empty-document filter now sits in
+`EmbeddingQueue::enqueue_batch`, which both enqueue paths use.
+
+Since upstream #496, search fails closed without a user identity: anonymous
+`/api/v1/search` returns 401, and API-key searches carry the key owner's
+identity, or admin access for admin-scope keys.
+
 ## Fork maintenance rules (learned the hard way)
 
 1. **Migration checksums are sacred** — `_sqlx_migrations` checksums must match file bytes. Never renumber/edit an applied migration without a matching DB row fix.
@@ -166,6 +209,8 @@ for. Production source images remain unchanged by this database mitigation.
 
 ```bash
 docker compose --env-file ../.env ps
+docker exec omni-postgres psql -U omni -d omni -c \
+  "SELECT status, count(*) FROM tasks WHERE task_type='document_embedding' GROUP BY 1"
 docker logs omni-indexer --since 10m | grep "Queue stats"      # Pending/Failed/Dead Letter
 docker logs omni-connector-manager --since 10m | grep -i "circuit breaker"  # stuck sources
 # Manual incremental sync (also resets the breaker on success): use the JSON
