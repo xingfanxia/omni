@@ -211,7 +211,9 @@ mod tests {
     use axum::{Router, extract::State, http::StatusCode, routing::post};
     use omni_connector_sdk::SdkClient;
     use serde_json::json;
-    use shared::models::{AuthType, ServiceProvider, SourceScope, UserFilterMode};
+    use shared::models::{
+        AuthType, IntegrationType, ServiceProvider, SourceScope, UserFilterMode,
+    };
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use time::OffsetDateTime;
     use tokio::net::TcpListener;
@@ -228,7 +230,8 @@ mod tests {
         Source {
             id: "source-1".to_string(),
             name: "Slack".to_string(),
-            source_type: SourceType::Slack,
+            source_type: SourceType::Slack.to_string(),
+            integration_type: IntegrationType::Connector,
             config: json!({}),
             is_active: true,
             is_deleted: false,
